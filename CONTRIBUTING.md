@@ -113,20 +113,22 @@ bodies, at any log level, in any build type.
 
 ## 6. Workflow
 
-**Branches.** Branch from `main`. Name branches after the Jira issue:
-`kan-1234-webview-retry`.
+**Branches.** Branch from `main`. Use a short descriptive name, optionally
+prefixed with the change type: `fix/webview-retry-1017`, `feat/lrs-checkout`.
 
-**Commits.** Prefix with the Jira key and a pipe, matching the other SDKs:
+**Commits.** Write an imperative subject line under ~72 characters that says what
+changed, and use the body for why:
 
 ```
-KAN-1234 | Add WebView error retry for -1017
-KAN-000  | Bump CI action versions
+Add WebView error retry for -1017
+Bump CI action versions
 ```
 
-`KAN-000` is for chores with no ticket.
+There is no required ticket prefix. GlomoPay engineers with a tracker reference may
+prefix it if they find it useful; nobody is expected to.
 
-**Pull requests.** Title them the same way. Fill in the template — the checklist
-items are load-bearing, not decoration. `main` is protected:
+**Pull requests.** Give the PR a descriptive title and fill in the template — the
+checklist items are load-bearing, not decoration. `main` is protected:
 
 - PRs only; no direct pushes
 - at least one approving review
