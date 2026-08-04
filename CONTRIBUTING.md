@@ -92,7 +92,8 @@ PR:
 - `group` set to the agreed Maven coordinates once namespace verification clears
 - CI workflows for assemble, unit test, lint, and `apiCheck`
 
-Do not pick `minSdk` unilaterally — it is a product decision. Ask.
+`minSdk` is fixed at **24** — see the README for the reasoning. Do not lower it
+without raising it with GlomoPay first.
 
 ## 4. Behavioural parity
 
