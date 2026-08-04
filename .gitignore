@@ -1,0 +1,47 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+local.properties
+
+# Android
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+release/
+
+# Kotlin
+.kotlin/
+
+# IDE — never commit these
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets and local config — never commit
+*.jks
+*.keystore
+*.p12
+*.pem
+secrets.properties
+signing.properties
+gradle.properties.local
+google-services.json
+
+# Scratch — do not commit temporary analysis or scratch files
+temp_*
+scratch_*
+*_output*.txt
+*.log
+coverage/
