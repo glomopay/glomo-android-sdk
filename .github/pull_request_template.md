@@ -1,8 +1,6 @@
 ## What and why
 
-<!-- Link the Jira issue. Title this PR `KAN-xxxx | short subject`. -->
-
-Jira: KAN-
+<!-- What changed, and why it needed changing. Link any relevant issue or discussion. -->
 
 ## How this was verified
 

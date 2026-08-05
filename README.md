@@ -45,11 +45,25 @@ sibling SDK you happened to read.
 
 ## Requirements
 
-Pending decisions, both marked open in the internal repo checklist:
+| | |
+|---|---|
+| **minSdk** | **24** (Android 7.0) |
+| **compileSdk / targetSdk** | Latest stable at release time |
+| **Kotlin** | 2.x |
+| **Maven coordinates** | Intended `com.glomopay`, pending DNS namespace verification on Maven Central |
 
-- **minSdk** — not yet fixed. Do not assume a value.
-- **Maven coordinates** — intended `com.glomopay`, pending DNS namespace
-  verification on Maven Central.
+**Why minSdk 24.** The deciding factor is TLS, not market share. Devices below
+Android 7.1.1 carry a stale CA trust store and fail handshakes against modern
+certificates — which for a checkout SDK means a payment dying before it reaches
+our servers, on a device we cannot reproduce, in a failure mode the merchant will
+report as our bug. API 24 sits at that boundary. It also covers the overwhelming
+majority of active devices, keeps WebView and Kotlin/AGP tooling comfortable, and
+matches where the React Native ecosystem has landed (0.76+ requires 24).
+
+Note for merchants already integrating a sibling SDK: this is a **higher floor**
+than our React Native testing harness pins (`minSdkVersion = 21`). If your app is
+currently at 21 and you adopt this SDK, you will need to raise your own minSdk.
+Raise it with us before you plan the work — talk to developer@glomopay.com.
 
 ## Installation
 
