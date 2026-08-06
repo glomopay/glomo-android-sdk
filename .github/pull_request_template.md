@@ -13,8 +13,10 @@
       contents in code, tests, fixtures, screenshots, or the description.
 - [ ] No credentials — no API keys, tokens, keystores, or signing material.
       Sandbox keys only in tests.
-- [ ] No new third-party dependencies. (See CONTRIBUTING.md — this is a hard rule.
-      If you believe one is unavoidable, stop and open a discussion first.)
+- [ ] Any new third-party dependency is called out above with a short case for it,
+      and is not in the "hard no" categories (data collection / phones home, or
+      anything touching card data). AndroidX, Kotlin stdlib and `kotlinx` need no
+      justification. See CONTRIBUTING.md.
 - [ ] Public API changes are intentional, and `apiDump` has been re-run and committed.
 - [ ] No card entry, tokenization, or PAN handling added. (See CONTRIBUTING.md.)
 - [ ] Release-build logging is off by default; no request or response bodies logged.
