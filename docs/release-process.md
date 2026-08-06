@@ -1,0 +1,74 @@
+# Release Process
+
+This document is for SDK maintainers. The sample APK is a QA artifact; the publishable artifact is the `glomopay-sdk` AAR.
+
+## Version
+
+Update the library version in:
+
+```text
+glomopay-sdk/build.gradle.kts
+```
+
+Keep the same version in `CHANGELOG.md` and the README dependency example. Never reuse a version after publishing.
+
+## Verification
+
+From the repository root:
+
+```bash
+./gradlew clean test
+./gradlew :glomopay-sdk:assembleRelease
+
+# Run wrapper QA from the standalone test app project when required.
+cd ../glomopay-android-sdk-test-app
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleRelease
+```
+
+Manually test Standard, LRS, subscription, validation-error, connection-error, and developer-mode scenarios in the sample app.
+
+## Publishing credentials
+
+Maven Central publishing requires a verified Sonatype namespace, deployment credentials, and signed Maven metadata. Store credentials and signing material outside source control using Gradle properties or CI secrets. Never commit passwords, private keys, or keystores.
+
+The intended coordinates are:
+
+```text
+groupId:    com.glomopay
+artifactId: glomopay-sdk
+version:    0.0.1
+```
+
+## Publish
+
+Follow the detailed [Maven Central publishing guide](maven-central-publishing.md) to register the namespace, complete DNS verification, configure signing, and create the publishing credentials. After the Maven publishing plugin and repository credentials are configured:
+
+```bash
+./gradlew :glomopay-sdk:publish
+```
+
+Validate the deployment in the Sonatype Central Portal, then verify that a clean consumer project can resolve the dependency from Maven Central.
+
+## Tag and document
+
+Update `CHANGELOG.md`, review `README.md`, and create a Git tag matching the library version:
+
+```bash
+git tag 0.0.1
+git push origin 0.0.1
+```
+
+Use the standalone test app APK only for QA. Consumers should depend on the published AAR rather than an APK or unsigned local artifact.
+
+## Checklist
+
+- [ ] Version updated in `glomopay-sdk/build.gradle.kts`.
+- [ ] README dependency version updated.
+- [ ] Changelog entry added.
+- [ ] Unit and integration tests pass.
+- [ ] Release AAR builds successfully.
+- [ ] Sample app QA completed.
+- [ ] Maven metadata and signatures validate.
+- [ ] Deployment is visible in Central Portal/Maven Central.
+- [ ] Git tag created and pushed.

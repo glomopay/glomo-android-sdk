@@ -18,51 +18,19 @@ out of PCI-DSS scope.
 A native card form would feel like a UX improvement and would be a compliance
 incident. If a requirement seems to need one, stop and raise it; do not build it.
 
-### Dependencies — keep them few, get additions reviewed
+### HARD RULE — no third-party dependencies
 
-Every dependency this SDK declares lands in the **merchant's** dependency graph,
-where it can collide with their own version of the same library. Gradle gives us no
-isolation mechanism for that, so the bar is higher here than in an app and the
-default is to use the platform.
+The SDK must depend on the Android framework and Kotlin stdlib only. No Retrofit,
+no OkHttp, no Gson/Moshi, no Sentry SDK, no external analytics SDK, no coroutines-adjacent
+convenience libraries.
 
-It is **not** a ban. Hand-rolling a well-solved problem — especially a
-security-sensitive one — wastes time and usually produces something worse. Reach for
-a library when it genuinely earns its place.
+Why: every dependency this SDK declares becomes a **transitive dependency in the
+merchant's app**, where it can collide with the merchant's own version. There is
+no isolation mechanism. Do not add an external analytics or telemetry transport
+without explicit approval.
 
-**No discussion needed:** AndroidX / Jetpack, the Kotlin standard library, and
-`kotlinx` libraries. These are effectively the modern platform and nearly every host
-app already ships them.
-
-**Propose before you build:** anything else. Raise it in the PR description, or in an
-issue if it's large, with a short case for why. A CODEOWNER approving the PR is what
-makes it accepted — so don't land a big piece of work that depends on a dependency
-nobody has agreed to yet.
-
-What reviewers will weigh:
-
-- Does the platform already do this acceptably?
-- Is the problem genuinely fiddly or security-sensitive — root/tamper detection,
-  cryptography, parsing untrusted input? Those favour a maintained library over our
-  own code.
-- Maintenance health: recent releases, responsive to CVEs, more than one contributor.
-- **License compatibility.** Must be redistributable under Apache-2.0 into
-  closed-source merchant apps. Anything copyleft (GPL / LGPL / AGPL) is a no.
-- Transitive footprint and method count.
-- Collision likelihood: how commonly do host apps already depend on this, and at what
-  versions?
-- Pin an exact version. Use `implementation`, not `api`, unless the library's types
-  genuinely appear in our public API.
-
-**Still a hard no, regardless of review:**
-
-- Anything that collects data or phones home — analytics, crash reporting,
-  attribution, advertising. Those make us a data processor inside someone else's app,
-  and they are the category most likely to collide with what the merchant already
-  runs. The React Native SDK deliberately calls Segment's REST API rather than
-  bundling the native SDK, precisely to avoid "conflicts with merchant's own Segment
-  implementation" — that reasoning still holds.
-- Anything that touches card data, tokenization, or native 3DS. See the card-handling
-  rule above.
+If you believe a dependency is genuinely unavoidable, open a discussion before
+writing code. The answer is usually no.
 
 ### HARD RULE — no customer data in this repository
 
@@ -77,9 +45,8 @@ This repo is **public**. Never commit, log, or paste into an issue or PR:
 Use synthetic fixtures and sandbox credentials. Push protection and a gitleaks
 scan run on every push, but they are a backstop, not permission to be careless.
 
-Note that the SDK legitimately ships a Segment **write key** and accepts the
-merchant's **publishable key**. Both are publishable by design and are not
-secrets. Everything else is.
+The SDK accepts the merchant's **publishable key**, which is publishable by
+design and is not a secret. Everything else is.
 
 ### HARD RULE — publishing is internal-only
 
@@ -100,10 +67,8 @@ expensive to fix than an implementation bug.
 - **binary-compatibility-validator** must be configured, with the generated
   `.api` dump committed. Re-run `apiDump` and commit the result in any PR that
   changes the surface, so the ABI change is visible in review.
-- Default to `internal`. Constants, config holders, and analytics plumbing are
-  `internal` unless a merchant genuinely needs them. (The iOS SDK exposed its
-  Segment write key as a `public` constant, which makes removing it a breaking
-  change — don't repeat that.)
+- Default to `internal`. Constants and config holders are `internal` unless
+  a merchant genuinely needs them.
 - The SDK stays on **0.x until GlomoPay freezes the API**. Expect and propose
   breaking changes freely while pre-1.0; do not tag 1.0.0 yourself.
 

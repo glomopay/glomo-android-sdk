@@ -1,80 +1,167 @@
 # GlomoPay Android SDK
 
-Official Android SDK (Kotlin) for GlomoPay Standard and LRS checkout.
+Native Kotlin SDK for integrating GlomoPay Standard and LRS hosted checkout
+flows into Android applications.
 
-> **Status: pre-implementation.** This repository currently contains governance,
-> CI, and contribution rules only. No SDK code has landed, nothing is published
-> to Maven Central, and the public API is not stable. Do not integrate yet.
+## Current Status
 
----
+Version `0.0.1` is implemented and available for local integration testing.
+Maven Central publication is planned; until then, use the local module or the
+published artifact when it becomes available.
 
-## What this SDK does
+The SDK hosts GlomoPay checkout in a native Android WebView and exposes payment
+results and lifecycle events through a Kotlin callback contract. Card details,
+3DS, bank authentication, and document upload screens remain inside the hosted
+checkout and are not implemented natively by the SDK.
 
-It presents GlomoPay's **hosted checkout** inside a WebView and relays events
-between that page and the host application over a JavaScript bridge. That is the
-whole job.
-
-It deliberately does **not**:
-
-- capture card numbers, CVVs, or expiry dates
-- tokenize payment instruments
-- implement 3DS or SCA logic natively
-- store or transmit KYC document contents
-
-Card data is handled entirely by the hosted checkout page, server-side. This
-boundary is what keeps the SDK — and every app embedding it — out of PCI scope.
-It is a hard architectural constraint, not a current implementation detail. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Sibling SDKs
-
-The same hosted checkout is wrapped by three other SDKs. All four must behave
-identically for a given checkout configuration:
-
-| Platform | Package | Repository |
-|---|---|---|
-| Flutter | `glomopay_sdk` on pub.dev | `glomopay/glomopay-flutter-sdk` |
-| React Native | `@glomopay/react-native-sdk` on npm | `glomopay/glomopay-rn-sdk` |
-| iOS | `GlomoPaySDK` on CocoaPods | `glomopay/glomopay-ios-sdk` |
-| Android | *(this repo)* | `glomopay/glomopay-android-sdk` |
-
-The JavaScript bridge contract they share — message names, payload shapes,
-callback semantics, error codes, and the checkout URL query contract — is the
-authority for this SDK's behaviour. Conform to the contract, not to whichever
-sibling SDK you happened to read.
+It deliberately does **not** capture card numbers, CVVs, or expiry dates;
+tokenize payment instruments; implement 3DS or SCA logic natively; or store or
+transmit KYC document contents. Card data is handled entirely by the hosted
+checkout page, server-side. This boundary is what keeps the SDK and every app
+embedding it out of PCI scope. It is a hard architectural constraint, not a
+current implementation detail. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 
-| | |
+| Requirement | Value |
 |---|---|
-| **minSdk** | **24** (Android 7.0) |
-| **compileSdk / targetSdk** | Latest stable at release time |
-| **Kotlin** | 2.x |
-| **Maven coordinates** | Intended `com.glomopay`, pending DNS namespace verification on Maven Central |
+| Minimum Android version | Android 7.0 / API 24 |
+| Compile SDK | 35 |
+| Kotlin | 2.0.21 or compatible |
+| Java/JVM target | 17 |
+| Planned Maven coordinates | `com.glomopay:glomopay-sdk:0.0.1` |
 
 **Why minSdk 24.** The deciding factor is TLS, not market share. Devices below
-Android 7.1.1 carry a stale CA trust store and fail handshakes against modern
-certificates — which for a checkout SDK means a payment dying before it reaches
-our servers, on a device we cannot reproduce, in a failure mode the merchant will
-report as our bug. API 24 sits at that boundary. It also covers the overwhelming
-majority of active devices, keeps WebView and Kotlin/AGP tooling comfortable, and
-matches where the React Native ecosystem has landed (0.76+ requires 24).
+Android 7.1.1 carry a stale CA trust store and can fail handshakes against modern
+certificates. For a checkout SDK, that means a payment can fail before reaching
+GlomoPay in a device-specific failure mode. API 24 sits at that support boundary,
+covers the overwhelming majority of active devices, keeps WebView and Kotlin/AGP
+tooling comfortable, and matches the modern React Native ecosystem floor.
 
-Note for merchants already integrating a sibling SDK: this is a **higher floor**
-than our React Native testing harness pins (`minSdkVersion = 21`). If your app is
-currently at 21 and you adopt this SDK, you will need to raise your own minSdk.
-Raise it with us before you plan the work — talk to developer@glomopay.com.
+Merchants currently using `minSdk 21` must raise their application's minimum SDK
+before adopting this library. Coordinate that change with
+`developer@glomopay.com` before planning the integration.
 
 ## Installation
 
-Not yet published. This section lands with the first release.
+When the artifact is available from Maven Central:
 
-## Support
+```kotlin
+repositories {
+    google()
+    mavenCentral()
+}
 
-- Integration questions: developer@glomopay.com
-- Security reports: security@glomopay.com — see [SECURITY.md](SECURITY.md), and
-  do not open a public issue
+dependencies {
+    implementation("com.glomopay:glomopay-sdk:0.0.1")
+}
+```
+
+For local SDK development, include the `glomopay-sdk` module in the host
+application and use:
+
+```kotlin
+implementation(project(":glomopay-sdk"))
+```
+
+## Basic Integration
+
+Implement `GlomoPayListener` and start checkout from an Activity or another
+Android context:
+
+```kotlin
+class CheckoutActivity : Activity(), GlomoPayListener {
+    fun startPayment(orderId: String) {
+        val config = GlomoPayConfig(
+            publicKey = "live_public_key",
+            orderId = orderId,
+            devMode = false,
+        )
+
+        GlomoPaySdk.startCheckout(this, config, this, orderType = "auto")
+    }
+
+    override fun onPaymentSuccess(payload: GlomoPayPayload) {
+        // Verify the payment on the merchant server before fulfilment.
+    }
+
+    override fun onPaymentFailure(payload: GlomoPayPayload) {}
+    override fun onSdkError(errors: List<SdkError>) {}
+    override fun onConnectionError(error: ConnectionError) {}
+    override fun onPaymentTerminate(source: TerminationSource) {}
+    override fun onEvent(name: String, payload: Map<String, Any?>) {}
+}
+```
+
+## Checkout Types
+
+Supported values are `auto`, `standard`, and `lrs`.
+
+- `auto`: detects the order type from the order API response.
+- `standard`: explicitly opens Standard checkout.
+- `lrs`: explicitly opens LRS checkout.
+
+Use `auto` when the API should remain the source of truth. Provide exactly one
+of `orderId` or `subscriptionId` in `GlomoPayConfig`.
+
+## Configuration
+
+```kotlin
+val config = GlomoPayConfig(
+    publicKey = "test_public_key",
+    orderId = "order_example",
+    server = null,
+    devMode = true,
+)
+```
+
+Guidelines:
+
+- Use `test_` or `mock_` keys with `devMode = true` for development and QA.
+- Use live keys only in production and on compliant devices.
+- Never log public keys, identifiers, payment signatures, or raw payment data
+  in production.
+- Verify successful payments server-side before delivering goods or services.
+
+## WebView and File Upload Behavior
+
+The SDK provides:
+
+- Native main checkout WebView and a separate secure bank/3DS flow overlay.
+- JavaScript bridge events for payment, redirect, navigation, and errors.
+- Android native file chooser support for hosted bank upload fields, including
+  PDF/document uploads.
+- Loading, connection-error, retry, and back-navigation handling.
+- Root, debugger, and developer-mode compliance checks for live sessions.
+
+The hosted checkout remains responsible for payment UI, bank authentication,
+3DS, and validation of uploaded documents.
+
+## Testing
+
+Run SDK unit tests from this repository:
+
+```bash
+./gradlew :glomopay-sdk:test
+```
+
+The standalone wrapper app is maintained separately at
+`glomopay-android-sdk-test-app`. It is used to test Standard, LRS,
+subscription, validation, developer-mode, bank redirect, and file-upload
+flows. The wrapper APK is a QA artifact and is not the SDK dependency.
+
+## Documentation
+
+- [Integration guide](docs/integration.md)
+- [API reference](docs/api-reference.md)
+- [Maven Central publishing guide](docs/maven-central-publishing.md)
+- [Release process](docs/release-process.md)
+
+## Support and Security
+
+For integration questions, contact `developer@glomopay.com`. For security
+reports, follow [SECURITY.md](SECURITY.md) and do not open a public issue.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
