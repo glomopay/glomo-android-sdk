@@ -19,8 +19,6 @@ compliance checks are a deterrent, not a security boundary.
 
 ## What is not a vulnerability
 
-The SDK ships a Segment analytics **write key** and the merchant's own
-**publishable key** in client code. Both are publishable by design and are
-present in every distributed build of every GlomoPay SDK. Neither grants read
-access to any data. Reports about their visibility will be closed as intended
-behaviour.
+The SDK accepts the merchant's **publishable key** in client code. It is
+publishable by design and grants no read access to data. Reports about its
+visibility will be closed as intended behaviour.
