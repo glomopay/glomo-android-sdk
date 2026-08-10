@@ -1,6 +1,6 @@
 # Publishing the Kotlin SDK to Maven Central
 
-This guide explains how to publish the native GlomoPay Kotlin SDK as a public Maven artifact. The standalone test application APK is not published to Maven Central; only the `glomopay-sdk` Android library is published.
+This guide explains how to publish the native GlomoPay Kotlin SDK as a public Maven artifact. The standalone test application APK is not published to Maven Central; only the `glomo-android-sdk` Android library is published.
 
 > **Current setup status:** The library coordinates and version are ready in this repository. The Sonatype namespace verification, publishing credentials, signing configuration, and CI secrets are still release-owner setup items. Do not run a production publish until those items are completed.
 
@@ -8,8 +8,8 @@ This guide explains how to publish the native GlomoPay Kotlin SDK as a public Ma
 
 ```text
 Group ID:    com.glomopay
-Artifact ID: glomopay-sdk
-Version:     0.0.1
+Artifact ID: glomo-android-sdk
+Version:     0.0.2
 ```
 
 Consumers will eventually add the SDK with:
@@ -20,7 +20,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomopay-sdk:0.0.1")
+    implementation("com.glomopay:glomo-android-sdk:0.0.2")
 }
 ```
 
@@ -90,11 +90,11 @@ Do not place the private key inside the repository.
 
 ## Step 6: Configure the library module
 
-The publishable module is `glomopay-sdk/`. Its release identity is configured in `glomopay-sdk/build.gradle.kts`:
+The publishable module is `glomo-android-sdk/`. Its release identity is configured in `glomo-android-sdk/build.gradle.kts`:
 
 ```kotlin
 group = "com.glomopay"
-version = "0.0.1"
+version = "0.0.2"
 ```
 
 The publishing setup must generate the release AAR, POM, sources JAR, Javadoc or Dokka JAR, checksums, and GPG signatures. The standalone test app is not included in the SDK publication.
@@ -107,7 +107,7 @@ From the repository root:
 ./gradlew clean test
 cd ../glomopay-android-sdk-test-app
 ./gradlew :app:testDebugUnitTest
-./gradlew :glomopay-sdk:assembleRelease
+./gradlew :glomo-android-sdk:assembleRelease
 ```
 
 Manually test Standard, LRS, subscription, validation-error, connection-error, and developer-mode scenarios in the sample app.
@@ -117,13 +117,13 @@ Manually test Standard, LRS, subscription, validation-error, connection-error, a
 After the Maven publishing and signing configuration is enabled, run the task configured by the project. Common task names are:
 
 ```bash
-./gradlew :glomopay-sdk:publish
+./gradlew :glomo-android-sdk:publish
 ```
 
 or:
 
 ```bash
-./gradlew :glomopay-sdk:publishToMavenCentral
+./gradlew :glomo-android-sdk:publishToMavenCentral
 ```
 
 The configured task uploads the signed publication to the Central Portal.
@@ -136,7 +136,7 @@ The configured task uploads the signed publication to the Central Portal.
 4. Publish the validated deployment if manual confirmation is required.
 5. Wait for Maven Central synchronization.
 
-The artifact must be available at `com.glomopay:glomopay-sdk:0.0.1`.
+The artifact must be available at `com.glomopay:glomo-android-sdk:0.0.2`.
 
 ## Step 10: Verify from a clean consumer project
 
@@ -149,7 +149,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomopay-sdk:0.0.1")
+    implementation("com.glomopay:glomo-android-sdk:0.0.2")
 }
 ```
 
@@ -157,13 +157,13 @@ Then run `./gradlew clean assembleDebug` and open a checkout through `GlomoPaySd
 
 ## Step 11: Tag and document the release
 
-1. Confirm the same version in `glomopay-sdk/build.gradle.kts`, `README.md`, and `CHANGELOG.md`.
+1. Confirm the same version in `glomo-android-sdk/build.gradle.kts`, `README.md`, and `CHANGELOG.md`.
 2. Add release notes to `CHANGELOG.md`.
 3. Create and push the Git tag:
 
 ```bash
-git tag 0.0.1
-git push origin 0.0.1
+git tag 0.0.2
+git push origin 0.0.2
 ```
 
 4. Share the Maven dependency, not the sample APK, with client developers.

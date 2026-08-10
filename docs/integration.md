@@ -2,7 +2,7 @@
 
 ## Add the SDK
 
-After the `0.0.1` artifact is published, add Maven Central and the SDK dependency to the host app:
+After the `0.0.2` artifact is published, add Maven Central and the SDK dependency to the host app:
 
 ```kotlin
 repositories {
@@ -11,11 +11,11 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomopay-sdk:0.0.1")
+    implementation("com.glomopay:glomo-android-sdk:0.0.2")
 }
 ```
 
-For local testing, use the standalone [Android SDK test app](../../glomopay-android-sdk-test-app/README.md). It links the sibling `glomopay-sdk` module with `implementation(project(":glomopay-sdk"))`.
+For local testing, use the standalone [Android SDK test app](../../glomopay-android-sdk-test-app/README.md). It links the sibling `glomo-android-sdk` module with `implementation(project(":glomo-android-sdk"))`.
 
 ## Configure checkout
 

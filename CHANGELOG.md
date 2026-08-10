@@ -1,10 +1,16 @@
 # Changelog
 
-All notable changes to the GlomoPay Android SDK are documented here.
+All notable changes to the Glomo Android SDK are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
 The public API is not stable until 1.0.0. Breaking changes may land in any
 0.x release.
+
+## [0.0.2]
+
+### Changed
+
+- All 4 points bugs/changes of android-sdk is completed with version 0.0.2
 
 ## [0.0.1] - Initial native Kotlin SDK
 
@@ -28,7 +34,12 @@ The public API is not stable until 1.0.0. Breaking changes may land in any
 - Bank/3DS pages are rendered above the main checkout instead of replacing the
   main WebView layer.
 
+### Changed
+
+- Renamed the Android artifact to `glomo-android-sdk`.
+- Moved Kotlin and Java APIs to the `com.glomopay.sdk.android` package.
+
 ### Distribution
 
-- Maven coordinates are planned as `com.glomopay:glomopay-sdk:0.0.1`.
+- Maven coordinates are planned as `com.glomopay:glomo-android-sdk:0.0.1`.
 - Maven Central publication and signed release metadata are still pending.
