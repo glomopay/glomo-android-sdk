@@ -11,6 +11,8 @@ The public API is not stable until 1.0.0. Breaking changes may land in any
 ### Changed
 
 - All 4 points bugs/changes of android-sdk is completed with version 0.0.2
+- Restored WebView loading percentages for the checkout and secure bank-flow
+  overlays without restoring the removed top progress bar.
 
 ## [0.0.1] - Initial native Kotlin SDK
 

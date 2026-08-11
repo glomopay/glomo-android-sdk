@@ -124,7 +124,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         rootView.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
         loadingLabel = TextView(this).apply {
-            text = "Loading checkout..."
+            text = getString(R.string.glomopay_loading_checkout)
             setTextColor(Color.DKGRAY)
             setBackgroundColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -136,6 +136,10 @@ public class GlomoPayCheckoutActivity : Activity() {
         rootView.addView(mainErrorPanel, FrameLayout.LayoutParams(-1, -1))
 
         webView.webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun onProgressChanged(view: android.webkit.WebView?, newProgress: Int) {
+                updateState(CheckoutUiState.LoadingProgress(newProgress.coerceIn(0, 100)))
+            }
+
             override fun onShowFileChooser(
                 view: android.webkit.WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -174,9 +178,15 @@ public class GlomoPayCheckoutActivity : Activity() {
         uiState = state
         when (state) {
             CheckoutUiState.Loading -> {
+                loadingLabel.text = getString(R.string.glomopay_loading_checkout)
                 loadingLabel.visibility = View.VISIBLE
             }
             is CheckoutUiState.LoadingProgress -> {
+                loadingLabel.text = if (state.progress > 0) {
+                    getString(R.string.glomopay_loading_checkout_progress, state.progress)
+                } else {
+                    getString(R.string.glomopay_loading_checkout)
+                }
                 loadingLabel.visibility = View.VISIBLE
             }
             CheckoutUiState.Content -> {
@@ -281,7 +291,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         val content = FrameLayout(this)
         val flow = CheckoutWebViewFactory.create(this, config.devMode)
         val flowLoading = TextView(this).apply {
-            text = "Opening secure page..."
+            text = getString(R.string.glomopay_opening_secure_page)
             textSize = 15f
             setTextColor(Color.DKGRAY)
             setBackgroundColor(Color.WHITE)
@@ -292,6 +302,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         flow.webViewClient = CheckoutWebViewClient(
             onPageStartedCallback = { pageUrl ->
                 listener?.onEvent("flow.pageStarted", mapOf("url" to pageUrl))
+                flowLoading.text = getString(R.string.glomopay_opening_secure_page)
                 flowLoading.visibility = View.VISIBLE
             },
             onPageFinishedCallback = { pageUrl ->
@@ -317,6 +328,15 @@ public class GlomoPayCheckoutActivity : Activity() {
             runOnUiThread { eventRouter.handle(raw) }
         }, "GlomoPayFlowBridge")
         flow.webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun onProgressChanged(view: android.webkit.WebView?, newProgress: Int) {
+                val progress = newProgress.coerceIn(0, 100)
+                flowLoading.text = if (progress > 0) {
+                    getString(R.string.glomopay_opening_secure_page_progress, progress)
+                } else {
+                    getString(R.string.glomopay_opening_secure_page)
+                }
+            }
+
             override fun onShowFileChooser(
                 view: android.webkit.WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
