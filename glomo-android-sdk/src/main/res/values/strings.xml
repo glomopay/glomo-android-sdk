@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="glomopay_back">Back</string>
+    <string name="glomopay_loading_checkout">Loading checkout...</string>
+    <string name="glomopay_loading_checkout_progress">Loading checkout... %1$d%%</string>
+    <string name="glomopay_opening_secure_page">Opening secure page...</string>
+    <string name="glomopay_opening_secure_page_progress">Opening secure page... %1$d%%</string>
+</resources>

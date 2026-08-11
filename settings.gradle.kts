@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "glomopay-android-sdk"
-include(":glomopay-sdk")
+rootProject.name = "glomo-android-sdk"
+include(":glomo-android-sdk")

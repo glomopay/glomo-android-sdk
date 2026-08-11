@@ -1,4 +1,4 @@
-# Contributing to the GlomoPay Android SDK
+# Contributing to the Glomo Android SDK
 
 Read this before your first commit. GlomoPay is an RBI-regulated payments company
 and this SDK ships inside merchant apps that handle real money, so a few of the

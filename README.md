@@ -1,11 +1,11 @@
-# GlomoPay Android SDK
+# Glomo Android SDK
 
 Native Kotlin SDK for integrating GlomoPay Standard and LRS hosted checkout
 flows into Android applications.
 
 ## Current Status
 
-Version `0.0.1` is implemented and available for local integration testing.
+Version `0.0.2` is implemented and available for local integration testing.
 Maven Central publication is planned; until then, use the local module or the
 published artifact when it becomes available.
 
@@ -29,7 +29,8 @@ current implementation detail. See [CONTRIBUTING.md](CONTRIBUTING.md).
 | Compile SDK | 35 |
 | Kotlin | 2.0.21 or compatible |
 | Java/JVM target | 17 |
-| Planned Maven coordinates | `com.glomopay:glomopay-sdk:0.0.1` |
+| Kotlin/Java package | `com.glomopay.sdk.android` |
+| Planned Maven coordinates | `com.glomopay:glomo-android-sdk:0.0.2` |
 
 **Why minSdk 24.** The deciding factor is TLS, not market share. Devices below
 Android 7.1.1 carry a stale CA trust store and can fail handshakes against modern
@@ -53,15 +54,15 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomopay-sdk:0.0.1")
+    implementation("com.glomopay:glomo-android-sdk:0.0.2")
 }
 ```
 
-For local SDK development, include the `glomopay-sdk` module in the host
+For local SDK development, include the `glomo-android-sdk` module in the host
 application and use:
 
 ```kotlin
-implementation(project(":glomopay-sdk"))
+implementation(project(":glomo-android-sdk"))
 ```
 
 ## Basic Integration
@@ -142,7 +143,7 @@ The hosted checkout remains responsible for payment UI, bank authentication,
 Run SDK unit tests from this repository:
 
 ```bash
-./gradlew :glomopay-sdk:test
+./gradlew :glomo-android-sdk:test
 ```
 
 The standalone wrapper app is maintained separately at
