@@ -85,6 +85,39 @@ jobs:
                     exit 1
                   fi
 
+            # -- Gate 5: SemVer version series ordering --
+            - name: Check version is a valid semver that can be published
+              run: |
+                  ALL_VERSIONS=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
+                    | sed 's/^v//' \
+                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
+                  echo "Published versions (from git tags):"
+                  echo "$ALL_VERSIONS" | sort -V
+
+                  IFS='.' read -r NEW_MAJOR NEW_MINOR NEW_PATCH <<< "$VERSION"
+
+                  SERIES_PATCHES=$(echo "$ALL_VERSIONS" \
+                    | grep -E "^${NEW_MAJOR}\.${NEW_MINOR}\.[0-9]+$" \
+                    | while IFS='.' read -r _ _ p; do echo "$p"; done \
+                    | sort -n)
+
+                  if [ -z "$SERIES_PATCHES" ]; then
+                    # New series: must start at X.Y.0
+                    if [ "$NEW_PATCH" != "0" ]; then
+                      echo "::error:: Version ${NEW_MAJOR}.${NEW_MINOR}.0 does not exist on Maven Central. Cannot push ${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
+                      exit 1
+                    fi
+                    echo "OK: Pushing $VERSION"
+                  else
+                    MAX_PATCH=$(echo "$SERIES_PATCHES" | tail -1)
+                    EXPECTED=$((MAX_PATCH + 1))
+                    if [ "$NEW_PATCH" != "$EXPECTED" ]; then
+                      echo "::error:: Version ${NEW_MAJOR}.${NEW_MINOR}.${MAX_PATCH} is already live on Maven Central, so version ${NEW_MAJOR}.${NEW_MINOR}.${EXPECTED} was expected, got $VERSION"
+                      exit 1
+                    fi
+                    echo "OK: Pushing $VERSION"
+                  fi
+
             # -- Build + test --
             - name: Build SDK
               run: ./gradlew :glomo-android-sdk:assembleRelease
