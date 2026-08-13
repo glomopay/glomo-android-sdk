@@ -87,6 +87,9 @@ jobs:
             - name: Build SDK
               run: ./gradlew :glomo-android-sdk:assembleRelease
 
+            - name: Lint
+              run: ./gradlew :glomo-android-sdk:lintRelease
+
             - name: Run tests
               run: ./gradlew :glomo-android-sdk:test
 
@@ -96,7 +99,12 @@ jobs:
             # -- Version bump --
             - name: Update version in build.gradle.kts
               run: |
-                  sed -i "s/^version = \".*\"/version = \"$VERSION\"/" glomo-android-sdk/build.gradle.kts
+                  sed -i -E 's/^([[:space:]]*)version[[:space:]]*=[[:space:]]*"[^"]*"/\1version = "'"$VERSION"'"/' glomo-android-sdk/build.gradle.kts
+                  ACTUAL=$(grep -oP 'version\s*=\s*"\K[^"]+' glomo-android-sdk/build.gradle.kts | head -1)
+                  if [ "$ACTUAL" != "$VERSION" ]; then
+                    echo "::error::Version bump failed. Expected $VERSION, found ${ACTUAL:-nothing}"
+                    exit 1
+                  fi
 
             # -- Changelog update --
             - name: Update CHANGELOG.md
