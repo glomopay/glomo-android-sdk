@@ -63,19 +63,20 @@ jobs:
                   fi
 
             # -- Gate 3: Maven Central version check --
-            - name: Check version is not already on Maven Central
+            - name: Check version is not already present on Maven Central
               run: |
                   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-                    "https://central.sonatype.com/api/v1/publisher/published?namespace=com.glomopay&name=glomo-android-sdk&version=$VERSION")
+                    "https://search.maven.org/solrsearch/select?q=g:com.glomopay+AND+a:glomo-android-sdk+AND+v:$VERSION&wt=json")
                   if [ "$HTTP_CODE" = "200" ]; then
-                    BODY=$(curl -s \
-                      "https://central.sonatype.com/api/v1/publisher/published?namespace=com.glomopay&name=glomo-android-sdk&version=$VERSION")
-                    if echo "$BODY" | grep -qi "true"; then
-                      echo "::error::Version $VERSION already published on Maven Central"
+                    NUM_FOUND=$(curl -s \
+                      "https://search.maven.org/solrsearch/select?q=g:com.glomopay+AND+a:glomo-android-sdk+AND+v:$VERSION&wt=json" \
+                      | jq '.response.numFound')
+                    if [ "$NUM_FOUND" -gt 0 ]; then
+                      echo "::error::Version $VERSION already exists on Maven Central"
                       exit 1
                     fi
                   fi
-                  echo "Version $VERSION appears available"
+                  echo "Version $VERSION is available (HTTP $HTTP_CODE)"
 
             # -- Gate 4: git tag check --
             - name: Check git tag does not exist
@@ -88,10 +89,10 @@ jobs:
             # -- Gate 5: SemVer version series ordering --
             - name: Check version is a valid semver that can be published
               run: |
-                  ALL_VERSIONS=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
-                    | sed 's/^v//' \
-                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
-                  echo "Published versions (from git tags):"
+                  ALL_VERSIONS=$(curl -s \
+                    "https://search.maven.org/solrsearch/select?q=g:com.glomopay+AND+a:glomo-android-sdk&core=gav&rows=200&wt=json" \
+                    | jq -r '.response.docs[].v')
+                  echo "Published versions on Maven Central:"
                   echo "$ALL_VERSIONS" | sort -V
 
                   IFS='.' read -r NEW_MAJOR NEW_MINOR NEW_PATCH <<< "$VERSION"
