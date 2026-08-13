@@ -12,16 +12,17 @@ on:
                 required: true
                 type: string
 
+permissions:
+    contents: write
+
 concurrency:
     group: release
     cancel-in-progress: false
 
 jobs:
     release:
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        permissions:
-            contents: write
+        runs-on: runs-on=${{ github.run_id }}/cpu=2/family=m7i+m7a/image=ubuntu24-full-x64/spot=true/extras=s3-cache
+        timeout-minutes: 20
         env:
             VERSION: ${{ inputs.version }}
             CHANGELOG: ${{ inputs.changelog }}
@@ -121,3 +122,13 @@ jobs:
                   git tag "v$VERSION"
                   git push origin "release-$VERSION" "v$VERSION"
                   echo "Tag v$VERSION -> $(git rev-parse v$VERSION)"
+
+            # -- Publish to Maven Central --
+            - name: Publish to Maven Central
+              env:
+                  ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME }}
+                  ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_PASSWORD }}
+                  ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.GPG_KEY_ID }}
+                  ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_SIGNING_KEY }}
+                  ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_SIGNING_PASSWORD }}
+              run: ./gradlew :glomo-android-sdk:publishAndReleaseToMavenCentral --no-configuration-cache
