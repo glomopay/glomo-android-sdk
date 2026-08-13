@@ -1,0 +1,123 @@
+name: Release SDK
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to publish (e.g. 0.1.0)"
+                required: true
+                type: string
+            changelog:
+                description: "Changelog entry (multiline). Version heading is added automatically."
+                required: true
+                type: string
+
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: write
+        env:
+            VERSION: ${{ inputs.version }}
+            CHANGELOG: ${{ inputs.changelog }}
+        steps:
+            # -- Gate 1: source branch constraint --
+            - name: Verify source branch
+              run: |
+                  REF="${{ github.ref }}"
+                  if [ "$REF" = "refs/heads/main" ]; then
+                    echo "OK: releasing from main"
+                  elif echo "$REF" | grep -qE '^refs/heads/release-[0-9]+\.[0-9]+\.[0-9]+$'; then
+                    echo "OK: releasing from ${REF#refs/heads/}"
+                  else
+                    echo "::error::Releases must be triggered from main or a release branch. Got: $REF"
+                    exit 1
+                  fi
+
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.ref }}
+                  fetch-depth: 0
+
+            - uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: 17
+
+            - uses: gradle/actions/setup-gradle@v4
+
+            # -- Gate 2: version format --
+            - name: Validate version format
+              run: |
+                  if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                    echo "::error::Invalid version format: $VERSION"
+                    exit 1
+                  fi
+
+            # -- Gate 3: Maven Central version check --
+            - name: Check version is not already on Maven Central
+              run: |
+                  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                    "https://central.sonatype.com/api/v1/publisher/published?namespace=com.glomopay&name=glomo-android-sdk&version=$VERSION")
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    BODY=$(curl -s \
+                      "https://central.sonatype.com/api/v1/publisher/published?namespace=com.glomopay&name=glomo-android-sdk&version=$VERSION")
+                    if echo "$BODY" | grep -qi "true"; then
+                      echo "::error::Version $VERSION already published on Maven Central"
+                      exit 1
+                    fi
+                  fi
+                  echo "Version $VERSION appears available"
+
+            # -- Gate 4: git tag check --
+            - name: Check git tag does not exist
+              run: |
+                  if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
+                    echo "::error::Git tag v$VERSION already exists"
+                    exit 1
+                  fi
+
+            # -- Build + test --
+            - name: Build SDK
+              run: ./gradlew :glomo-android-sdk:assembleRelease
+
+            - name: Run tests
+              run: ./gradlew :glomo-android-sdk:test
+
+            - name: API compatibility check
+              run: ./gradlew apiCheck
+
+            # -- Version bump --
+            - name: Update version in build.gradle.kts
+              run: |
+                  sed -i "s/^version = \".*\"/version = \"$VERSION\"/" glomo-android-sdk/build.gradle.kts
+
+            # -- Changelog update --
+            - name: Update CHANGELOG.md
+              run: |
+                  FIRST_VER=$(grep -n '^## \[' CHANGELOG.md | head -1 | cut -d: -f1)
+                  if [ -z "$FIRST_VER" ]; then
+                    printf '\n## [%s]\n\n%s\n' "$VERSION" "$CHANGELOG" >> CHANGELOG.md
+                  else
+                    head -n $((FIRST_VER - 1)) CHANGELOG.md > /tmp/cl_header.md
+                    printf '## [%s]\n\n%s\n\n' "$VERSION" "$CHANGELOG" > /tmp/cl_entry.md
+                    tail -n +$FIRST_VER CHANGELOG.md > /tmp/cl_rest.md
+                    cat /tmp/cl_header.md /tmp/cl_entry.md /tmp/cl_rest.md > CHANGELOG.md
+                  fi
+
+            # -- Release branch and tag --
+            - name: Create release branch and tag
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git checkout -b "release-$VERSION"
+                  git add glomo-android-sdk/build.gradle.kts CHANGELOG.md
+                  git commit -m "Release | bump version to $VERSION"
+                  git tag "v$VERSION"
+                  git push origin "release-$VERSION" "v$VERSION"
+                  echo "Tag v$VERSION -> $(git rev-parse v$VERSION)"

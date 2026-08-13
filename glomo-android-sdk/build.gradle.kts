@@ -1,6 +1,7 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
+    id("com.vanniktech.maven.publish")
 }
 
 kotlin {
@@ -32,6 +33,37 @@ android {
         buildConfig = true
     }
 
+}
+
+mavenPublishing {
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
+
+    coordinates("com.glomopay", "glomo-android-sdk", version.toString())
+
+    pom {
+        name.set("Glomo Android SDK")
+        description.set("Glomo Android SDK for cross-border payments")
+        url.set("https://github.com/glomopay/glomo-android-sdk")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("glomo")
+                name.set("Glomo")
+                url.set("https://glomopay.com")
+            }
+        }
+        scm {
+            url.set("https://github.com/glomopay/glomo-android-sdk")
+            connection.set("scm:git:git://github.com/glomopay/glomo-android-sdk.git")
+            developerConnection.set("scm:git:ssh://git@github.com/glomopay/glomo-android-sdk.git")
+        }
+    }
 }
 
 dependencies {
