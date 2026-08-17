@@ -41,6 +41,10 @@ internal class MixpanelAnalyticsTracker(
 ) : AnalyticsTracker {
     @Volatile private var flowType: String = initialFlowType
     @Volatile private var checkoutUrl: String? = null
+    private val timestampFormatter = SimpleDateFormat(
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+        Locale.US,
+    ).apply { timeZone = INDIA_TIME_ZONE }
 
     override fun updateFlowType(flowType: String) {
         this.flowType = flowType
@@ -88,10 +92,9 @@ internal class MixpanelAnalyticsTracker(
         put("distinct_id", config.orderId)
     }
 
-    private fun isoTimestamp(timeMillis: Long): String = SimpleDateFormat(
-        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-        Locale.US,
-    ).apply { timeZone = INDIA_TIME_ZONE }.format(Date(timeMillis))
+    private fun isoTimestamp(timeMillis: Long): String = synchronized(timestampFormatter) {
+        timestampFormatter.format(Date(timeMillis))
+    }
 
     private companion object {
         val INDIA_TIME_ZONE: TimeZone = TimeZone.getTimeZone("Asia/Kolkata")

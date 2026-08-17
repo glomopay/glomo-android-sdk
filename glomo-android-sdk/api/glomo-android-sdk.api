@@ -22,7 +22,6 @@ public final class com/glomopay/sdk/android/ConfigManager {
 	public final fun detectOrderType (Ljava/util/Map;)Ljava/lang/String;
 	public final fun getBaseUrl (Lcom/glomopay/sdk/android/GlomoPayConfig;Ljava/lang/String;)Ljava/lang/String;
 	public static synthetic fun getBaseUrl$default (Lcom/glomopay/sdk/android/ConfigManager;Lcom/glomopay/sdk/android/GlomoPayConfig;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
-	public final fun getCarouselUrl (Lcom/glomopay/sdk/android/GlomoPayConfig;)Ljava/lang/String;
 	public final fun getCheckoutUrl (Lcom/glomopay/sdk/android/GlomoPayConfig;Ljava/lang/String;)Ljava/lang/String;
 	public static synthetic fun getCheckoutUrl$default (Lcom/glomopay/sdk/android/ConfigManager;Lcom/glomopay/sdk/android/GlomoPayConfig;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
 	public final fun getMode (Ljava/lang/String;)Ljava/lang/String;
