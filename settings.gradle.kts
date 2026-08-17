@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "glomo-android-sdk"
 include(":glomo-android-sdk")
+include(":sample-app")

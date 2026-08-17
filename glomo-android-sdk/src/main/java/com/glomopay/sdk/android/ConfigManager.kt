@@ -29,7 +29,7 @@ public object ConfigManager {
         )
     }
 
-    public fun getCarouselUrl(config: GlomoPayConfig): String =
+    internal fun getCarouselUrl(config: GlomoPayConfig): String =
         withQuery(
             CAROUSEL_BASE_URL,
             listOf("orderId" to (config.orderId ?: ""), "publicKey" to config.publicKey),

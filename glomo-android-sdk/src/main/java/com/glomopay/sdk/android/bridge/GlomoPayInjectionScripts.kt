@@ -6,6 +6,41 @@ internal object GlomoPayInjectionScripts {
 
     fun flow(bridgeName: String = "GlomoPayFlowBridge"): String = build(bridgeName)
 
+    fun carousel(bridgeName: String = "GlomoCarousel"): String = """
+        (function() {
+          var pendingKey = '__glomoCarouselPendingMessage__';
+          var send = function(data) {
+            try {
+              var parsed = typeof data === 'string' ? JSON.parse(data) : data;
+              if (!parsed) return;
+              if (parsed.type !== 'lrs.has_education_steps' || parsed.value !== true) return;
+              var payload = JSON.stringify({type:parsed.type,value:true});
+              if (window.$bridgeName) window.$bridgeName.postMessage(payload);
+              else window[pendingKey] = payload;
+            } catch(e) {}
+          };
+
+          if (!window.__glomoCarouselListenerReady__) {
+            window.__glomoCarouselListenerReady__ = true;
+            try {
+              var originalPostMessage = window.postMessage.bind(window);
+              window.postMessage = function(message, targetOrigin, transfer) {
+                send(message);
+                return originalPostMessage(message, targetOrigin, transfer);
+              };
+            } catch(e) {}
+            window.addEventListener('message', function(event) {
+              if (event.data) send(event.data);
+            });
+          }
+
+          if (window[pendingKey] && window.$bridgeName) {
+            window.$bridgeName.postMessage(window[pendingKey]);
+            window[pendingKey] = null;
+          }
+        })();
+    """.trimIndent()
+
     private fun build(bridgeName: String): String = """
         (function() {
           var flag = '__glomo_${bridgeName}_Injected__';
@@ -84,9 +119,11 @@ internal object GlomoPayInjectionScripts {
           };
 
           window.addEventListener('error', function(e) {
+            bridge(JSON.stringify({type:'webview.error',errorType:'js_error',message:String(e.message||'JavaScript error')}));
             sendLog('error', 'Uncaught: ' + e.message);
           });
           window.addEventListener('unhandledrejection', function(e) {
+            bridge(JSON.stringify({type:'webview.error',errorType:'unhandled_rejection',message:String(e.reason||'Unhandled promise rejection')}));
             sendLog('error', 'Unhandled Rejection: ' + e.reason);
           });
           window.addEventListener('message', function(e) {

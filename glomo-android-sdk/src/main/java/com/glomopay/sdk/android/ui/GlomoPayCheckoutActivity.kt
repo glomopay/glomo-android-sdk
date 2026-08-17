@@ -15,8 +15,11 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.view.ViewGroup
 import android.webkit.ValueCallback
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.glomopay.sdk.android.ConfigManager
 import com.glomopay.sdk.android.ConnectionError
+import com.glomopay.sdk.android.ConnectionErrorType
 import com.glomopay.sdk.android.GlomoPayApiClient
 import com.glomopay.sdk.android.GlomoPayConfig
 import com.glomopay.sdk.android.GlomoPayResult
@@ -27,7 +30,16 @@ import com.glomopay.sdk.android.SdkErrorType
 import com.glomopay.sdk.android.bridge.GlomoPayEventRouter
 import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
 import com.glomopay.sdk.android.bridge.GlomoPayJavaScriptBridge
+import com.glomopay.sdk.android.analytics.AnalyticsEvents
+import com.glomopay.sdk.android.analytics.AnalyticsSanitizer
+import com.glomopay.sdk.android.analytics.AnalyticsTracker
+import com.glomopay.sdk.android.analytics.complianceAnalyticsProperties
 import com.glomopay.sdk.android.analytics.GlomoPayLogger
+import com.glomopay.sdk.android.analytics.NoOpAnalyticsTracker
+import com.glomopay.sdk.android.carousel.EducationCarouselContract
+import com.glomopay.sdk.android.carousel.EducationCarouselState
+import com.glomopay.sdk.android.monitoring.NoOpSdkErrorReporter
+import com.glomopay.sdk.android.monitoring.SdkErrorReporter
 import com.glomopay.sdk.android.Validator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,9 +47,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import com.glomopay.sdk.android.security.CompliancePolicy
 import com.glomopay.sdk.android.security.DeviceComplianceChecker
 import com.glomopay.sdk.android.state.CheckoutUiState
+import com.glomopay.sdk.android.state.withLoadingProgress
 import com.glomopay.sdk.android.webview.CheckoutWebViewClient
 import com.glomopay.sdk.android.webview.CheckoutWebViewFactory
 
@@ -48,14 +62,23 @@ public class GlomoPayCheckoutActivity : Activity() {
     private lateinit var config: GlomoPayConfig
     private var sessionId: String? = null
     private var listener: com.glomopay.sdk.android.GlomoPayListener? = null
+    private var analytics: AnalyticsTracker = NoOpAnalyticsTracker
+    private var errorReporter: SdkErrorReporter = NoOpSdkErrorReporter
     private lateinit var eventRouter: GlomoPayEventRouter
     private lateinit var rootView: FrameLayout
     private var flowWebView: android.webkit.WebView? = null
     private var flowOverlay: FrameLayout? = null
     private var flowLoadingLabel: TextView? = null
+    private var flowCarouselContainer: FrameLayout? = null
+    private var flowPaymentContainer: FrameLayout? = null
+    private var carouselWebView: android.webkit.WebView? = null
+    private var carouselState: EducationCarouselState = EducationCarouselState.PENDING
+    private var currentOrderType: String = "standard"
     private var mainErrorPanel: View? = null
     private var paymentInProgress = false
     private var currentUrl: String? = null
+    private var lastMainAnalyticsUrl: String? = null
+    private var lastRedirectAnalyticsUrl: String? = null
     private var uiState: CheckoutUiState = CheckoutUiState.Loading
     private var pendingFilePathCallback: ValueCallback<Array<Uri>>? = null
     private val checkoutScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -64,12 +87,20 @@ public class GlomoPayCheckoutActivity : Activity() {
         super.onCreate(savedInstanceState)
         config = configFromIntent(intent)
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
-        listener = CheckoutSessionRegistry.get(sessionId)
+        val checkoutSession = CheckoutSessionRegistry.get(sessionId)
+        listener = checkoutSession?.listener
+        analytics = checkoutSession?.analytics ?: NoOpAnalyticsTracker
+        errorReporter = checkoutSession?.errorReporter ?: NoOpSdkErrorReporter
         GlomoPayLogger.devMode = config.devMode
         val publicKeyError = if (Validator.isValidPublicKey(config.publicKey)) null else "Invalid Public Key format"
         val identifierError = Validator.validateCheckoutIdentifier(config.orderId, config.subscriptionId)
         if (publicKeyError != null || identifierError.isNotEmpty()) {
             val message = publicKeyError ?: identifierError
+            analytics.track(AnalyticsEvents.SDK_VALIDATION_FAILED, mapOf(
+                "failure_reason" to validationFailureReason(publicKeyError, identifierError),
+                "error_message" to message,
+            ))
+            trackSdkError(SdkError(SdkErrorType.VALIDATION_ERROR, message))
             listener?.onSdkError(listOf(SdkError(SdkErrorType.VALIDATION_ERROR, message)))
             finishWith(GlomoPayResult.Failure(message, "VALIDATION_ERROR"))
             return
@@ -81,14 +112,23 @@ public class GlomoPayCheckoutActivity : Activity() {
             onWindowOpen = ::showFlow,
             onWindowClose = ::hideFlow,
             onPaymentPending = { paymentInProgress = true },
+            analytics = analytics,
+            errorReporter = errorReporter,
         )
         val strictCompliance = CompliancePolicy.requiresStrictCheck(config)
         val compliance = DeviceComplianceChecker.check(this, strictCompliance)
+        analytics.track(
+            AnalyticsEvents.DEVICE_COMPLIANCE_CHECKED,
+            complianceAnalyticsProperties(config.devMode, compliance),
+        )
         if (!compliance.isCompliant) {
-            listener?.onSdkError(listOf(SdkError(
+            analytics.track(AnalyticsEvents.DEVICE_COMPLIANCE_BLOCKED, mapOf("block_reason" to "root_detected"))
+            val error = SdkError(
                 type = SdkErrorType.DEVICE_FORBIDDEN,
                 message = "Device is rooted or jailbroken.",
-            )))
+            )
+            trackSdkError(error)
+            listener?.onSdkError(listOf(error))
             finishWith(GlomoPayResult.Failure("Device does not meet security requirements", "DEVICE_NON_COMPLIANT"))
             return
         }
@@ -102,16 +142,22 @@ public class GlomoPayCheckoutActivity : Activity() {
             webViewClient = CheckoutWebViewClient(
                 onPageStartedCallback = { url ->
                     currentUrl = url
+                    analytics.track(AnalyticsEvents.NAVIGATION_STARTED, navigationProperties(url))
                     mainErrorPanel?.visibility = View.GONE
                     updateState(CheckoutUiState.Loading)
                 },
                 onPageFinishedCallback = { url ->
                     currentUrl = url
+                    analytics.track(AnalyticsEvents.NAVIGATION_FINISHED, navigationProperties(url))
                     updateState(CheckoutUiState.Content)
                     evaluateInjection()
                 },
                 onUrlChangedCallback = { url ->
                     currentUrl = url
+                    if (lastMainAnalyticsUrl != url) {
+                        lastMainAnalyticsUrl = url
+                        analytics.track(AnalyticsEvents.NAVIGATION_URL_CHANGE, navigationProperties(url))
+                    }
                 },
                 onErrorCallback = ::handleConnectionError,
             )
@@ -137,7 +183,7 @@ public class GlomoPayCheckoutActivity : Activity() {
 
         webView.webChromeClient = object : android.webkit.WebChromeClient() {
             override fun onProgressChanged(view: android.webkit.WebView?, newProgress: Int) {
-                updateState(CheckoutUiState.LoadingProgress(newProgress.coerceIn(0, 100)))
+                updateState(uiState.withLoadingProgress(newProgress))
             }
 
             override fun onShowFileChooser(
@@ -150,7 +196,16 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun loadCheckout() {
-        val requestedType = intent.getStringExtra(EXTRA_ORDER_TYPE) ?: "auto"
+        val rawRequestedType = intent.getStringExtra(EXTRA_ORDER_TYPE) ?: "auto"
+        val requestedType = rawRequestedType.trim().lowercase()
+        if (requestedType !in SUPPORTED_ORDER_TYPES) {
+            analytics.track(
+                AnalyticsEvents.UNSUPPORTED_FUNCTIONALITY_USED,
+                mapOf("name" to "orderType:$rawRequestedType"),
+            )
+            openCheckout("standard")
+            return
+        }
         val orderId = config.orderId
         if (requestedType != "auto" || config.isSubscription || orderId.isNullOrEmpty()) {
             openCheckout(requestedType.takeUnless { it == "auto" } ?: "standard")
@@ -158,18 +213,43 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
 
         checkoutScope.launch {
-            val detectedType = runCatching {
+            analytics.track(AnalyticsEvents.ORDER_TYPE_DETECTION_STARTED)
+            val detectedType = try {
                 val order = withContext(Dispatchers.IO) {
                     GlomoPayApiClient(config.publicKey, config.devMode).fetchOrder(orderId)
                 }
-                ConfigManager.detectOrderType(order)
-            }.getOrDefault("standard")
+                ConfigManager.detectOrderType(order).also { resolved ->
+                    analytics.updateFlowType(resolved)
+                    errorReporter.updateFlowType(resolved)
+                    analytics.track(AnalyticsEvents.ORDER_TYPE_RESOLVED, mapOf("resolved_type" to resolved))
+                }
+            } catch (error: Exception) {
+                analytics.updateFlowType("standard")
+                errorReporter.updateFlowType("standard")
+                analytics.track(AnalyticsEvents.ORDER_TYPE_DETECTION_FAILED, mapOf(
+                    "error" to error.javaClass.simpleName,
+                    "fallback_type" to "standard",
+                ))
+                errorReporter.capture(
+                    operation = "order_type_detection",
+                    error = error,
+                    context = mapOf("fallback_type" to "standard"),
+                )
+                "standard"
+            }
             openCheckout(detectedType)
         }
     }
 
     private fun openCheckout(orderType: String) {
-        val url = ConfigManager.getCheckoutUrl(config, orderType)
+        currentOrderType = orderType.lowercase()
+        prepareEducationCarousel(currentOrderType)
+        val url = ConfigManager.getCheckoutUrl(config, currentOrderType)
+        analytics.updateFlowType(currentOrderType)
+        errorReporter.updateFlowType(currentOrderType)
+        analytics.updateCheckoutUrl(url)
+        analytics.track(AnalyticsEvents.CHECKOUT_URL_RESOLVED, mapOf("url" to url))
+        analytics.track(AnalyticsEvents.CHECKOUT_STARTED)
         currentUrl = url
         webView.loadUrl(url)
     }
@@ -200,19 +280,133 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun handleConnectionError(error: ConnectionError) {
+        analytics.track(AnalyticsEvents.CONNECTION_ERROR, mapOf(
+            "error_code" to (error.errorCode ?: error.statusCode)?.toString(),
+            "error_description" to error.message,
+            "url" to error.failedUrl?.let(AnalyticsSanitizer::navigationUrl),
+            "is_recoverable" to error.isRecoverable,
+        ))
+        error.statusCode?.let { statusCode ->
+            analytics.track(AnalyticsEvents.WEBVIEW_HTTP_ERROR, mapOf(
+                "status_code" to statusCode,
+                "url" to error.failedUrl?.let(AnalyticsSanitizer::navigationUrl),
+                "webview_type" to "main",
+            ))
+        }
+        trackWebViewError(error, "main")
+        errorReporter.capture(
+            operation = "main_webview_connection",
+            error = IllegalStateException(error.type.name),
+            context = mapOf(
+                "error_type" to error.type.name,
+                "status_code" to error.statusCode,
+                "webview_type" to "main",
+            ),
+        )
         updateState(CheckoutUiState.Error(error))
         mainErrorPanel?.visibility = View.VISIBLE
         loadingLabel.visibility = View.GONE
         listener?.onConnectionError(error)
-        listener?.onSdkError(listOf(com.glomopay.sdk.android.SdkError(
+        val sdkError = com.glomopay.sdk.android.SdkError(
             com.glomopay.sdk.android.SdkErrorType.NETWORK_ERROR,
             "${error.message} (${error.errorCode ?: error.statusCode ?: "unknown"})",
-        )))
+        )
+        trackSdkError(sdkError)
+        listener?.onSdkError(listOf(sdkError))
     }
 
     private fun evaluateInjection() {
         webView.evaluateJavascript("window.__glomoDevMode__ = ${config.devMode};", null)
         webView.evaluateJavascript(GlomoPayInjectionScripts.main(), null)
+    }
+
+    private fun prepareEducationCarousel(orderType: String) {
+        destroyEducationCarousel()
+        currentOrderType = orderType.lowercase()
+        if (currentOrderType != "lrs" || config.isSubscription) return
+
+        val carousel = CheckoutWebViewFactory.create(this, config.devMode)
+        carousel.webViewClient = CheckoutWebViewClient(
+            onPageStartedCallback = {
+                carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
+            },
+            onPageFinishedCallback = {
+                carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
+            },
+            onUrlChangedCallback = {},
+            onErrorCallback = { error ->
+                analytics.track(
+                    AnalyticsEvents.EDUCATION_STEPS_FAILED,
+                    mapOf("reason" to "webview_error"),
+                )
+                errorReporter.capture(
+                    operation = "education_carousel_webview",
+                    error = IllegalStateException(error.type.name),
+                    context = mapOf("error_type" to error.type.name),
+                )
+            },
+        )
+        carousel.addJavascriptInterface(
+            GlomoPayJavaScriptBridge { raw ->
+                runOnUiThread { handleEducationCarouselMessage(raw) }
+            },
+            "GlomoCarousel",
+        )
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(
+                carousel,
+                GlomoPayInjectionScripts.carousel(),
+                setOf("*"),
+            )
+        }
+        carouselWebView = carousel
+        carousel.loadUrl(ConfigManager.getCarouselUrl(config))
+    }
+
+    private fun handleEducationCarouselMessage(rawMessage: String) {
+        if (EducationCarouselContract.parseAvailabilitySignal(rawMessage) != true) return
+        showEducationCarousel()
+    }
+
+    private fun showEducationCarousel() {
+        if (carouselState == EducationCarouselState.HAS_CONTENT) return
+        carouselState = EducationCarouselState.HAS_CONTENT
+        analytics.track(AnalyticsEvents.EDUCATION_STEPS_SHOWN, mapOf("source" to "carousel"))
+        applyEducationCarouselLayout()
+    }
+
+    private fun applyEducationCarouselLayout() {
+        val layout = EducationCarouselContract.layout(
+            state = carouselState,
+            isLrsOrder = currentOrderType == "lrs",
+            isSubscription = config.isSubscription,
+        )
+        val carouselContainer = flowCarouselContainer ?: return
+        val paymentContainer = flowPaymentContainer ?: return
+
+        carouselContainer.visibility = if (layout.showCarousel) View.VISIBLE else View.GONE
+        (carouselContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            params.weight = layout.carouselWeight
+            carouselContainer.layoutParams = params
+        }
+        (paymentContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            params.weight = layout.paymentWeight
+            paymentContainer.layoutParams = params
+        }
+        carouselContainer.requestLayout()
+        paymentContainer.requestLayout()
+    }
+
+    private fun destroyEducationCarousel() {
+        carouselState = EducationCarouselState.PENDING
+        applyEducationCarouselLayout()
+        carouselWebView?.let { carousel ->
+            (carousel.parent as? ViewGroup)?.removeView(carousel)
+            carousel.stopLoading()
+            carousel.removeJavascriptInterface("GlomoCarousel")
+            carousel.destroy()
+        }
+        carouselWebView = null
     }
 
     private fun createErrorPanel(): View = LinearLayout(this).apply {
@@ -257,10 +451,12 @@ public class GlomoPayCheckoutActivity : Activity() {
     private fun retryMainCheckout() {
         mainErrorPanel?.visibility = View.GONE
         updateState(CheckoutUiState.Loading)
-        webView.loadUrl(currentUrl ?: ConfigManager.getCheckoutUrl(config, intent.getStringExtra(EXTRA_ORDER_TYPE) ?: "standard"))
+        prepareEducationCarousel(currentOrderType)
+        webView.loadUrl(currentUrl ?: ConfigManager.getCheckoutUrl(config, currentOrderType))
     }
 
     private fun cancelCheckout() {
+        analytics.track(AnalyticsEvents.PAYMENT_TERMINATED, mapOf("termination_source" to "user_dismiss"))
         listener?.onPaymentTerminate(com.glomopay.sdk.android.TerminationSource.USER_DISMISS)
         finishWith(GlomoPayResult.Cancelled)
     }
@@ -288,7 +484,21 @@ public class GlomoPayCheckoutActivity : Activity() {
         toolbar.addView(back, LinearLayout.LayoutParams(dp(48), dp(48)))
         layout.addView(toolbar, LinearLayout.LayoutParams(-1, dp(48)))
 
-        val content = FrameLayout(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val carouselContainer = FrameLayout(this).apply {
+            visibility = View.GONE
+        }
+        val paymentContainer = FrameLayout(this)
+        flowCarouselContainer = carouselContainer
+        flowPaymentContainer = paymentContainer
+        carouselWebView?.let { carousel ->
+            (carousel.parent as? ViewGroup)?.removeView(carousel)
+            carouselContainer.addView(carousel, FrameLayout.LayoutParams(-1, -1))
+        }
+        content.addView(carouselContainer, LinearLayout.LayoutParams(-1, 0, 0f))
+        content.addView(paymentContainer, LinearLayout.LayoutParams(-1, 0, 100f))
         val flow = CheckoutWebViewFactory.create(this, config.devMode)
         val flowLoading = TextView(this).apply {
             text = getString(R.string.glomopay_opening_secure_page)
@@ -301,20 +511,49 @@ public class GlomoPayCheckoutActivity : Activity() {
         flowLoadingLabel = flowLoading
         flow.webViewClient = CheckoutWebViewClient(
             onPageStartedCallback = { pageUrl ->
+                analytics.track(AnalyticsEvents.REDIRECT_PAGE_STARTED, bankNavigationProperties(pageUrl))
                 listener?.onEvent("flow.pageStarted", mapOf("url" to pageUrl))
                 flowLoading.text = getString(R.string.glomopay_opening_secure_page)
                 flowLoading.visibility = View.VISIBLE
             },
             onPageFinishedCallback = { pageUrl ->
+                analytics.track(AnalyticsEvents.REDIRECT_PAGE_FINISHED, bankNavigationProperties(pageUrl))
                 listener?.onEvent("flow.pageFinished", mapOf("url" to pageUrl))
                 flowLoading.visibility = View.GONE
                 flow.evaluateJavascript("window.__glomoDevMode__ = ${config.devMode};", null)
                 flow.evaluateJavascript(GlomoPayInjectionScripts.flow(), null)
             },
             onUrlChangedCallback = { pageUrl ->
+                if (lastRedirectAnalyticsUrl != pageUrl) {
+                    lastRedirectAnalyticsUrl = pageUrl
+                    analytics.track(AnalyticsEvents.REDIRECT_URL_CHANGE, bankNavigationProperties(pageUrl))
+                }
                 listener?.onEvent("flow.urlChange", mapOf("url" to pageUrl))
             },
             onErrorCallback = { error ->
+                analytics.track(AnalyticsEvents.CONNECTION_ERROR, mapOf(
+                    "error_code" to (error.errorCode ?: error.statusCode)?.toString(),
+                    "error_description" to error.message,
+                    "url" to error.failedUrl?.let(AnalyticsSanitizer::bankRedirectUrl),
+                    "is_recoverable" to error.isRecoverable,
+                ))
+                error.statusCode?.let { statusCode ->
+                    analytics.track(AnalyticsEvents.WEBVIEW_HTTP_ERROR, mapOf(
+                        "status_code" to statusCode,
+                        "url" to error.failedUrl?.let(AnalyticsSanitizer::bankRedirectUrl),
+                        "webview_type" to "flow",
+                    ))
+                }
+                trackWebViewError(error, "flow")
+                errorReporter.capture(
+                    operation = "redirect_webview_connection",
+                    error = IllegalStateException(error.type.name),
+                    context = mapOf(
+                        "error_type" to error.type.name,
+                        "status_code" to error.statusCode,
+                        "webview_type" to "flow",
+                    ),
+                )
                 flowLoading.text = error.message
                 flowLoading.visibility = View.VISIBLE
                 listener?.onEvent("flow.error", mapOf(
@@ -325,7 +564,7 @@ public class GlomoPayCheckoutActivity : Activity() {
             },
         )
         flow.addJavascriptInterface(GlomoPayJavaScriptBridge { raw ->
-            runOnUiThread { eventRouter.handle(raw) }
+            runOnUiThread { eventRouter.handle(raw, "flow") }
         }, "GlomoPayFlowBridge")
         flow.webChromeClient = object : android.webkit.WebChromeClient() {
             override fun onProgressChanged(view: android.webkit.WebView?, newProgress: Int) {
@@ -343,12 +582,13 @@ public class GlomoPayCheckoutActivity : Activity() {
                 fileChooserParams: FileChooserParams?
             ): Boolean = openFileChooser(filePathCallback, fileChooserParams)
         }
-        content.addView(flow, FrameLayout.LayoutParams(-1, -1))
-        content.addView(flowLoading, FrameLayout.LayoutParams(-1, -1))
+        paymentContainer.addView(flow, FrameLayout.LayoutParams(-1, -1))
+        paymentContainer.addView(flowLoading, FrameLayout.LayoutParams(-1, -1))
         layout.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         overlay.addView(layout, FrameLayout.LayoutParams(-1, -1))
         flowOverlay = overlay
         rootView.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        applyEducationCarouselLayout()
         flow.loadUrl(url)
     }
 
@@ -356,6 +596,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         callback: ValueCallback<Array<Uri>>?,
         params: android.webkit.WebChromeClient.FileChooserParams?
     ): Boolean {
+        val acceptTypes = params?.acceptTypes?.filter { it.isNotBlank() }?.joinToString(",")
         pendingFilePathCallback?.onReceiveValue(null)
         pendingFilePathCallback = callback
 
@@ -367,7 +608,17 @@ public class GlomoPayCheckoutActivity : Activity() {
             val chooser = Intent.createChooser(fileIntent, "Select file")
             startActivityForResult(chooser, REQUEST_FILE_CHOOSER)
             true
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            analytics.track(AnalyticsEvents.FILE_PICKER_ERROR, mapOf(
+                "accept_types" to (acceptTypes ?: ""),
+                "error_message" to (error.message ?: "Unable to open file picker"),
+                "picker_method" to "system_document_picker",
+            ))
+            errorReporter.capture(
+                operation = "file_picker",
+                error = error,
+                context = mapOf("source" to "system_document_picker"),
+            )
             pendingFilePathCallback?.onReceiveValue(null)
             pendingFilePathCallback = null
             false
@@ -387,6 +638,9 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun hideFlow() {
+        carouselWebView?.let { carousel ->
+            (carousel.parent as? ViewGroup)?.removeView(carousel)
+        }
         flowOverlay?.let { rootView.removeView(it) }
         flowWebView?.let {
             CheckoutWebViewFactory.clearSession(it)
@@ -395,6 +649,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         flowOverlay = null
         flowWebView = null
         flowLoadingLabel = null
+        flowCarouselContainer = null
+        flowPaymentContainer = null
+        lastRedirectAnalyticsUrl = null
     }
 
     @Suppress("DEPRECATION")
@@ -405,6 +662,7 @@ public class GlomoPayCheckoutActivity : Activity() {
             flow.goBack()
         } else {
             hideFlow()
+            analytics.track(AnalyticsEvents.REDIRECT_CLOSED, mapOf("source" to "flow"))
             listener?.onEvent("redirect.completed", emptyMap())
         }
     }
@@ -419,6 +677,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         } else if (webView.canGoBack()) {
             webView.goBack()
         } else {
+            analytics.track(AnalyticsEvents.PAYMENT_TERMINATED, mapOf("termination_source" to "back_button"))
             listener?.onPaymentTerminate(com.glomopay.sdk.android.TerminationSource.BACK_BUTTON)
             finishWith(GlomoPayResult.Cancelled)
         }
@@ -426,6 +685,7 @@ public class GlomoPayCheckoutActivity : Activity() {
 
     override fun onDestroy() {
         checkoutScope.cancel()
+        destroyEducationCarousel()
         if (::webView.isInitialized) {
             hideFlow()
             CheckoutWebViewFactory.clearSession(webView)
@@ -436,8 +696,46 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun finishWith(result: GlomoPayResult) {
+        destroyEducationCarousel()
         setResult(if (result is GlomoPayResult.Success) RESULT_OK else RESULT_CANCELED)
         finish()
+    }
+
+    private fun navigationProperties(url: String): Map<String, Any?> =
+        mapOf("url" to AnalyticsSanitizer.navigationUrl(url))
+
+    private fun bankNavigationProperties(url: String): Map<String, Any?> =
+        mapOf("url" to AnalyticsSanitizer.bankRedirectUrl(url))
+
+    private fun trackWebViewError(error: ConnectionError, webViewType: String) {
+        if (error.type != ConnectionErrorType.WEB_RESOURCE_ERROR &&
+            error.type != ConnectionErrorType.UNKNOWN
+        ) {
+            return
+        }
+        analytics.track(AnalyticsEvents.WEBVIEW_ERROR, mapOf(
+            "error_type" to error.type.name.lowercase(),
+            "error_message" to error.message,
+            "webview_type" to webViewType,
+        ))
+    }
+
+    private fun trackSdkError(error: SdkError) {
+        val serializedError = JSONObject(mapOf(
+            "type" to error.type.toString(),
+            "message" to AnalyticsSanitizer.text(error.message, 500),
+        )).toString()
+        analytics.track(AnalyticsEvents.SDK_ERROR, mapOf(
+            "error_count" to 1,
+            "errors" to "[$serializedError]",
+        ))
+    }
+
+    private fun validationFailureReason(publicKeyError: String?, identifierError: String): String = when {
+        publicKeyError != null -> "invalid_public_key"
+        identifierError.contains("both", ignoreCase = true) -> "both_ids_provided"
+        identifierError.contains("subscription", ignoreCase = true) -> "invalid_subscription_id"
+        else -> "missing_order_id"
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -459,6 +757,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         public const val EXTRA_ORDER_TYPE: String = "com.glomopay.sdk.android.ORDER_TYPE"
         public const val EXTRA_SESSION_ID: String = "com.glomopay.sdk.android.SESSION_ID"
         private const val REQUEST_FILE_CHOOSER = 4101
+        private val SUPPORTED_ORDER_TYPES = setOf("auto", "standard", "lrs")
 
         public fun createIntent(
             context: Context,

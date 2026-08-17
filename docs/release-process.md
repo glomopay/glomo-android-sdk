@@ -20,10 +20,12 @@ From the repository root:
 ./gradlew clean test
 ./gradlew :glomo-android-sdk:assembleRelease
 
-# Run wrapper QA from the standalone test app project when required.
-cd ../glomopay-android-sdk-test-app
-./gradlew :app:testDebugUnitTest
-./gradlew :app:assembleRelease
+# Confirm consumer ProGuard/R8 rules are packaged in the AAR.
+unzip -p glomo-android-sdk/build/outputs/aar/glomo-android-sdk-release.aar proguard.txt
+
+# Run the in-repository sample app tests and build.
+./gradlew :sample-app:testDebugUnitTest
+./gradlew :sample-app:assembleDebug
 ```
 
 Manually test Standard, LRS, subscription, validation-error, connection-error, and developer-mode scenarios in the sample app.
@@ -37,7 +39,7 @@ The intended coordinates are:
 ```text
 groupId:    com.glomopay
 artifactId: glomo-android-sdk
-version:    0.0.2
+version:    1.0.0
 ```
 
 ## Publish
@@ -55,8 +57,8 @@ Validate the deployment in the Sonatype Central Portal, then verify that a clean
 Update `CHANGELOG.md`, review `README.md`, and create a Git tag matching the library version:
 
 ```bash
-git tag 0.0.2
-git push origin 0.0.2
+git tag 1.0.0
+git push origin 1.0.0
 ```
 
 Use the standalone test app APK only for QA. Consumers should depend on the published AAR rather than an APK or unsigned local artifact.
@@ -68,6 +70,9 @@ Use the standalone test app APK only for QA. Consumers should depend on the publ
 - [ ] Changelog entry added.
 - [ ] Unit and integration tests pass.
 - [ ] Release AAR builds successfully.
+- [ ] AAR contains the expected `proguard.txt` consumer rules.
+- [ ] A minified wrapper release build completes and its checkout JavaScript bridge is smoke-tested.
+- [ ] Final-app mapping upload is configured in protected merchant CI when Sentry deobfuscation is required.
 - [ ] Sample app QA completed.
 - [ ] Maven metadata and signatures validate.
 - [ ] Deployment is visible in Central Portal/Maven Central.

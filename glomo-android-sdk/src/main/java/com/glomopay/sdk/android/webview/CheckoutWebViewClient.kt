@@ -1,6 +1,7 @@
 package com.glomopay.sdk.android.webview
 
 import android.net.http.SslError
+import android.os.Build
 import android.webkit.ClientCertRequest
 import android.webkit.HttpAuthHandler
 import android.webkit.SslErrorHandler
@@ -8,6 +9,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.RenderProcessGoneDetail
 import com.glomopay.sdk.android.ConnectionError
 
 @Suppress("DEPRECATION")
@@ -93,5 +95,17 @@ internal class CheckoutWebViewClient(
 
     override fun onReceivedHttpAuthRequest(view: WebView, handler: HttpAuthHandler, host: String, realm: String) {
         handler.cancel()
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        onErrorCallback(
+            ConnectionError(
+                type = com.glomopay.sdk.android.ConnectionErrorType.UNKNOWN,
+                message = if (detail.didCrash()) "WebView renderer crashed" else "WebView renderer was terminated",
+                failedUrl = view.url,
+            ),
+        )
+        return true
     }
 }
