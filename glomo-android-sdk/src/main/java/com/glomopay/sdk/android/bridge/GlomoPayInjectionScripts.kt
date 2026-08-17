@@ -13,12 +13,8 @@ internal object GlomoPayInjectionScripts {
             try {
               var parsed = typeof data === 'string' ? JSON.parse(data) : data;
               if (!parsed) return;
-              var eventName = parsed.type || parsed.event;
-              if (eventName !== 'lrs.has_education_steps') return;
-              var rawValue = typeof parsed.value !== 'undefined' ? parsed.value : parsed.hasContent;
-              if (typeof rawValue === 'undefined') return;
-              var value = rawValue === true || String(rawValue).toLowerCase() === 'true';
-              var payload = JSON.stringify({type:eventName,value:value});
+              if (parsed.type !== 'lrs.has_education_steps' || parsed.value !== true) return;
+              var payload = JSON.stringify({type:parsed.type,value:true});
               if (window.$bridgeName) window.$bridgeName.postMessage(payload);
               else window[pendingKey] = payload;
             } catch(e) {}

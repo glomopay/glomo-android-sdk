@@ -14,27 +14,27 @@ class EducationCarouselContractTest {
     fun documented_type_and_value_payload_is_supported() {
         assertEquals(
             true,
-            EducationCarouselContract.parseHasContent(
+            EducationCarouselContract.parseAvailabilitySignal(
                 """{"type":"lrs.has_education_steps","value":true}""",
             ),
         )
     }
 
     @Test
-    fun flutter_event_and_has_content_payload_remains_supported() {
-        assertEquals(
-            false,
-            EducationCarouselContract.parseHasContent(
-                """{"event":"lrs.has_education_steps","hasContent":false}""",
-            ),
-        )
+    fun legacy_and_explicit_false_payloads_are_ignored() {
+        assertNull(EducationCarouselContract.parseAvailabilitySignal(
+            """{"event":"lrs.has_education_steps","hasContent":true}""",
+        ))
+        assertNull(EducationCarouselContract.parseAvailabilitySignal(
+            """{"type":"lrs.has_education_steps","value":false}""",
+        ))
     }
 
     @Test
     fun unrelated_or_incomplete_messages_do_not_change_state() {
-        assertNull(EducationCarouselContract.parseHasContent("""{"type":"payment.pending"}"""))
-        assertNull(EducationCarouselContract.parseHasContent("""{"type":"lrs.has_education_steps"}"""))
-        assertNull(EducationCarouselContract.parseHasContent("not-json"))
+        assertNull(EducationCarouselContract.parseAvailabilitySignal("""{"type":"payment.pending"}"""))
+        assertNull(EducationCarouselContract.parseAvailabilitySignal("""{"type":"lrs.has_education_steps"}"""))
+        assertNull(EducationCarouselContract.parseAvailabilitySignal("not-json"))
     }
 
     @Test
@@ -76,8 +76,9 @@ class EducationCarouselContractTest {
         assertTrue(script.contains("window.postMessage = function"))
         assertTrue(script.contains("window.addEventListener('message'"))
         assertTrue(script.contains("window.GlomoCarousel.postMessage"))
-        assertTrue(script.contains("parsed.type || parsed.event"))
-        assertTrue(script.contains("parsed.value"))
-        assertTrue(script.contains("parsed.hasContent"))
+        assertTrue(script.contains("parsed.type !== 'lrs.has_education_steps'"))
+        assertTrue(script.contains("parsed.value !== true"))
+        assertFalse(script.contains("parsed.event"))
+        assertFalse(script.contains("parsed.hasContent"))
     }
 }

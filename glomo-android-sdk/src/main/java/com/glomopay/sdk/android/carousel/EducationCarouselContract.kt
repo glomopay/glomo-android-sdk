@@ -5,7 +5,6 @@ import org.json.JSONObject
 internal enum class EducationCarouselState {
     PENDING,
     HAS_CONTENT,
-    NO_CONTENT,
 }
 
 internal data class EducationCarouselLayout(
@@ -17,18 +16,17 @@ internal data class EducationCarouselLayout(
 internal object EducationCarouselContract {
     const val EVENT_NAME = "lrs.has_education_steps"
 
-    fun parseHasContent(rawMessage: String): Boolean? = runCatching {
+    fun parseAvailabilitySignal(rawMessage: String): Boolean? = runCatching {
         val message = JSONObject(rawMessage)
         val data = message.keys().asSequence().associateWith { key ->
             message.opt(key).takeUnless { it == JSONObject.NULL }
         }
-        hasContent(data)
+        availabilitySignal(data)
     }.getOrNull()
 
-    fun hasContent(data: Map<String, Any?>): Boolean? {
-        val eventName = data["type"]?.toString() ?: data["event"]?.toString()
-        if (eventName != EVENT_NAME) return null
-        return booleanValue(data["value"] ?: data["hasContent"])
+    fun availabilitySignal(data: Map<String, Any?>): Boolean? {
+        if (data["type"]?.toString() != EVENT_NAME) return null
+        return true.takeIf { data["value"] == true }
     }
 
     fun layout(
@@ -44,14 +42,4 @@ internal object EducationCarouselContract {
         }
     }
 
-    private fun booleanValue(value: Any?): Boolean? = when (value) {
-        is Boolean -> value
-        is Number -> value.toInt() != 0
-        is String -> when {
-            value.equals("true", ignoreCase = true) -> true
-            value.equals("false", ignoreCase = true) -> false
-            else -> null
-        }
-        else -> null
-    }
 }

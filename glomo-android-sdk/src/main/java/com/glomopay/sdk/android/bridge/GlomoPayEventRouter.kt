@@ -163,18 +163,10 @@ internal class GlomoPayEventRouter(
                 mapOf("pay_via_bank_status" to payloadData["status"]?.toString()),
             )
             "lrs.has_education_steps" -> {
-                when (EducationCarouselContract.hasContent(payloadData)) {
-                    true -> {
-                        analytics.track(AnalyticsEvents.EDUCATION_STEPS_SHOWN, mapOf(
-                            "source" to payloadData["source"]?.toString(),
-                        ))
-                    }
-                    false -> {
-                        analytics.track(AnalyticsEvents.EDUCATION_STEPS_FAILED, mapOf(
-                            "reason" to (payloadData["reason"]?.toString() ?: "no_content"),
-                        ))
-                    }
-                    null -> Unit
+                if (EducationCarouselContract.availabilitySignal(payloadData) == true) {
+                    analytics.track(AnalyticsEvents.EDUCATION_STEPS_SHOWN, mapOf(
+                        "source" to payloadData["source"]?.toString(),
+                    ))
                 }
             }
             "lrs.education_steps_failed", "lrs.education_steps_failed_to_show" -> analytics.track(

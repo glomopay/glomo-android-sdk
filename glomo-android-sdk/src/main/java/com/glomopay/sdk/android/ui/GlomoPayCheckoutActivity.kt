@@ -335,7 +335,10 @@ public class GlomoPayCheckoutActivity : Activity() {
             },
             onUrlChangedCallback = {},
             onErrorCallback = { error ->
-                updateEducationCarouselState(hasContent = false, failureReason = "webview_error")
+                analytics.track(
+                    AnalyticsEvents.EDUCATION_STEPS_FAILED,
+                    mapOf("reason" to "webview_error"),
+                )
                 errorReporter.capture(
                     operation = "education_carousel_webview",
                     error = IllegalStateException(error.type.name),
@@ -361,24 +364,14 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun handleEducationCarouselMessage(rawMessage: String) {
-        val hasContent = EducationCarouselContract.parseHasContent(rawMessage) ?: return
-        updateEducationCarouselState(hasContent)
+        if (EducationCarouselContract.parseAvailabilitySignal(rawMessage) != true) return
+        showEducationCarousel()
     }
 
-    private fun updateEducationCarouselState(hasContent: Boolean, failureReason: String? = null) {
-        val nextState = if (hasContent) {
-            EducationCarouselState.HAS_CONTENT
-        } else {
-            EducationCarouselState.NO_CONTENT
-        }
-        if (carouselState == nextState) return
-
-        carouselState = nextState
-        if (hasContent) {
-            analytics.track(AnalyticsEvents.EDUCATION_STEPS_SHOWN, mapOf("source" to "carousel"))
-        } else if (failureReason != null) {
-            analytics.track(AnalyticsEvents.EDUCATION_STEPS_FAILED, mapOf("reason" to failureReason))
-        }
+    private fun showEducationCarousel() {
+        if (carouselState == EducationCarouselState.HAS_CONTENT) return
+        carouselState = EducationCarouselState.HAS_CONTENT
+        analytics.track(AnalyticsEvents.EDUCATION_STEPS_SHOWN, mapOf("source" to "carousel"))
         applyEducationCarouselLayout()
     }
 
