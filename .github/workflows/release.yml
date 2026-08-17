@@ -1,0 +1,178 @@
+name: Release SDK
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to publish (e.g. 0.1.0)"
+                required: true
+                type: string
+            changelog:
+                description: "Changelog entry (multiline). Version heading is added automatically."
+                required: true
+                type: string
+
+permissions:
+    contents: write
+
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+jobs:
+    release:
+        runs-on: runs-on=${{ github.run_id }}/cpu=2/family=m7i+m7a/image=ubuntu24-full-x64/spot=true/extras=s3-cache
+        timeout-minutes: 20
+        env:
+            VERSION: ${{ inputs.version }}
+            CHANGELOG: ${{ inputs.changelog }}
+        steps:
+            # -- Gate 1: source branch constraint --
+            - name: Verify source branch
+              run: |
+                  REF="${{ github.ref }}"
+                  if [ "$REF" = "refs/heads/main" ]; then
+                    echo "OK: releasing from main"
+                  elif echo "$REF" | grep -qE '^refs/heads/release-[0-9]+\.[0-9]+\.[0-9]+$'; then
+                    echo "OK: releasing from ${REF#refs/heads/}"
+                  else
+                    echo "::error::Releases must be triggered from main or a release branch. Got: $REF"
+                    exit 1
+                  fi
+
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.ref }}
+                  fetch-depth: 0
+
+            - uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: 17
+
+            - uses: android-actions/setup-android@v3
+
+            - uses: gradle/actions/setup-gradle@v4
+
+            # -- Gate 2: version format --
+            - name: Validate version format
+              run: |
+                  if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                    echo "::error::Invalid version format: $VERSION"
+                    exit 1
+                  fi
+
+            # -- Gate 3: Maven Central version check --
+            - name: Check version is not already present on Maven Central
+              run: |
+                  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                    "https://search.maven.org/solrsearch/select?q=g:com.glomopay+AND+a:glomo-android-sdk+AND+v:$VERSION&wt=json")
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    NUM_FOUND=$(curl -s \
+                      "https://search.maven.org/solrsearch/select?q=g:com.glomopay+AND+a:glomo-android-sdk+AND+v:$VERSION&wt=json" \
+                      | jq '.response.numFound')
+                    if [ "$NUM_FOUND" -gt 0 ]; then
+                      echo "::error::Version $VERSION already exists on Maven Central"
+                      exit 1
+                    fi
+                  fi
+                  echo "Version $VERSION is available (HTTP $HTTP_CODE)"
+
+            # -- Gate 4: git tag check --
+            - name: Check git tag does not exist
+              run: |
+                  if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
+                    echo "::error::Git tag v$VERSION already exists"
+                    exit 1
+                  fi
+
+            # -- Gate 5: SemVer version series ordering --
+            - name: Check version is a valid semver that can be published
+              run: |
+                  ALL_VERSIONS=$(curl -s \
+                    "https://search.maven.org/solrsearch/select?q=g:com.glomopay+AND+a:glomo-android-sdk&core=gav&rows=200&wt=json" \
+                    | jq -r '.response.docs[].v')
+                  echo "Published versions on Maven Central:"
+                  echo "$ALL_VERSIONS" | sort -V
+
+                  IFS='.' read -r NEW_MAJOR NEW_MINOR NEW_PATCH <<< "$VERSION"
+
+                  SERIES_PATCHES=$(echo "$ALL_VERSIONS" \
+                    | grep -E "^${NEW_MAJOR}\.${NEW_MINOR}\.[0-9]+$" \
+                    | while IFS='.' read -r _ _ p; do echo "$p"; done \
+                    | sort -n)
+
+                  if [ -z "$SERIES_PATCHES" ]; then
+                    # New series: must start at X.Y.0
+                    if [ "$NEW_PATCH" != "0" ]; then
+                      echo "::error:: Version ${NEW_MAJOR}.${NEW_MINOR}.0 does not exist on Maven Central. Cannot push ${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
+                      exit 1
+                    fi
+                    echo "OK: Pushing $VERSION"
+                  else
+                    MAX_PATCH=$(echo "$SERIES_PATCHES" | tail -1)
+                    EXPECTED=$((MAX_PATCH + 1))
+                    if [ "$NEW_PATCH" != "$EXPECTED" ]; then
+                      echo "::error:: Version ${NEW_MAJOR}.${NEW_MINOR}.${MAX_PATCH} is already live on Maven Central, so version ${NEW_MAJOR}.${NEW_MINOR}.${EXPECTED} was expected, got $VERSION"
+                      exit 1
+                    fi
+                    echo "OK: Pushing $VERSION"
+                  fi
+
+            # -- Build + test --
+            - name: Build SDK
+              run: ./gradlew :glomo-android-sdk:assembleRelease
+
+            - name: Lint
+              run: ./gradlew :glomo-android-sdk:lintRelease
+
+            - name: Run tests
+              run: ./gradlew :glomo-android-sdk:test
+
+            - name: API compatibility check
+              run: ./gradlew apiCheck
+
+            # -- Version bump --
+            - name: Update version in build.gradle.kts
+              run: |
+                  sed -i -E 's/^([[:space:]]*)version[[:space:]]*=[[:space:]]*"[^"]*"/\1version = "'"$VERSION"'"/' glomo-android-sdk/build.gradle.kts
+                  ACTUAL=$(grep -oP 'version\s*=\s*"\K[^"]+' glomo-android-sdk/build.gradle.kts | head -1)
+                  if [ "$ACTUAL" != "$VERSION" ]; then
+                    echo "::error::Version bump failed. Expected $VERSION, found ${ACTUAL:-nothing}"
+                    exit 1
+                  fi
+
+            # -- Changelog update --
+            - name: Update CHANGELOG.md
+              run: |
+                  FIRST_VER=$(grep -n '^## \[' CHANGELOG.md | head -1 | cut -d: -f1)
+                  if [ -z "$FIRST_VER" ]; then
+                    printf '\n## [%s]\n\n%s\n' "$VERSION" "$CHANGELOG" >> CHANGELOG.md
+                  else
+                    head -n $((FIRST_VER - 1)) CHANGELOG.md > /tmp/cl_header.md
+                    printf '## [%s]\n\n%s\n\n' "$VERSION" "$CHANGELOG" > /tmp/cl_entry.md
+                    tail -n +$FIRST_VER CHANGELOG.md > /tmp/cl_rest.md
+                    cat /tmp/cl_header.md /tmp/cl_entry.md /tmp/cl_rest.md > CHANGELOG.md
+                  fi
+
+            # -- Release branch and tag --
+            - name: Create release branch and tag
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git checkout -b "release-$VERSION"
+                  git add glomo-android-sdk/build.gradle.kts CHANGELOG.md
+                  git commit -m "Release | bump version to $VERSION"
+                  git tag "v$VERSION"
+                  git push origin "release-$VERSION" "v$VERSION"
+                  echo "Tag v$VERSION -> $(git rev-parse v$VERSION)"
+
+            # -- Publish to Maven Central --
+            - name: Publish to Maven Central
+              env:
+                  ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME }}
+                  ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_PASSWORD }}
+                  ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.GPG_KEY_ID }}
+                  ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_SIGNING_KEY }}
+                  ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_SIGNING_PASSWORD }}
+              run: ./gradlew :glomo-android-sdk:publishAndReleaseToMavenCentral --no-configuration-cache
