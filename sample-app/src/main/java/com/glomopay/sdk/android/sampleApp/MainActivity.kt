@@ -1,4 +1,4 @@
-package com.glomopay.sample
+package com.glomopay.sdk.android.sampleApp
 
 import android.app.Activity
 import android.content.res.ColorStateList

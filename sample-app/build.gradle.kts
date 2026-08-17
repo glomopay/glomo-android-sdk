@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.glomopay.sample"
+    namespace = "com.glomopay.sdk.android.sampleApp"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.glomopay.sample"
+        applicationId = "com.glomopay.sdk.android.sampleApp"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

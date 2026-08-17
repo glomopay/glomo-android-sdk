@@ -8,6 +8,11 @@ public API changes require a new major release.
 
 ## Unreleased
 
+### Added
+
+- Added automatic LRS education carousel support above the secure bank flow,
+  with a responsive 15/85 split, hidden fallback, and per-checkout state reset.
+
 ## [1.0.0] - 2026-08-17
 
 ### Added

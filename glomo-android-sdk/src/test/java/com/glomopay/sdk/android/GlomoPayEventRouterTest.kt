@@ -3,6 +3,7 @@ package com.glomopay.sdk.android
 import com.glomopay.sdk.android.bridge.GlomoPayEventRouter
 import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
 import com.glomopay.sdk.android.analytics.AnalyticsEvent
+import com.glomopay.sdk.android.analytics.AnalyticsEvents
 import com.glomopay.sdk.android.analytics.AnalyticsTracker
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -68,6 +69,67 @@ class GlomoPayEventRouterTest {
         assertTrue(script.contains("type:'message'"))
         assertTrue(script.contains("window.fetch"))
         assertTrue(script.contains("XMLHttpRequest.prototype.open"))
+        assertTrue(script.contains("type:'webview.error'"))
+        assertTrue(script.contains("errorType:'js_error'"))
+        assertTrue(script.contains("errorType:'unhandled_rejection'"))
+    }
+
+    @Test
+    fun webview_error_is_tracked_with_its_webview_context() {
+        val analytics = RecordingAnalytics()
+        val router = GlomoPayEventRouter(
+            listener = RecordingListener(),
+            devMode = false,
+            onComplete = {},
+            analytics = analytics,
+        )
+
+        router.handleEnvelope(
+            mapOf(
+                "type" to "webview.error",
+                "errorType" to "js_error",
+                "message" to "Render failed",
+            ),
+            webViewType = "flow",
+        )
+
+        assertEquals(AnalyticsEvents.WEBVIEW_ERROR, analytics.events.single().name)
+        assertEquals("js_error", analytics.events.single().properties["error_type"])
+        assertEquals("flow", analytics.events.single().properties["webview_type"])
+    }
+
+    @Test
+    fun education_step_events_are_tracked_from_bridge_messages() {
+        val analytics = RecordingAnalytics()
+        val router = GlomoPayEventRouter(
+            listener = RecordingListener(),
+            devMode = false,
+            onComplete = {},
+            analytics = analytics,
+        )
+
+        router.handleEnvelope(mapOf(
+            "type" to "message",
+            "data" to mapOf(
+                "type" to "lrs.has_education_steps",
+                "value" to true,
+                "source" to "checkout",
+            ),
+        ))
+        router.handleEnvelope(mapOf(
+            "type" to "message",
+            "data" to mapOf(
+                "type" to "lrs.education_steps_failed",
+                "reason" to "render_failed",
+            ),
+        ))
+
+        assertEquals(
+            listOf(AnalyticsEvents.EDUCATION_STEPS_SHOWN, AnalyticsEvents.EDUCATION_STEPS_FAILED),
+            analytics.events.map { it.name },
+        )
+        assertEquals("checkout", analytics.events[0].properties["source"])
+        assertEquals("render_failed", analytics.events[1].properties["reason"])
     }
 
     @Test

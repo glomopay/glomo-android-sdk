@@ -10,6 +10,7 @@ import com.glomopay.sdk.android.analytics.AnalyticsEvents
 import com.glomopay.sdk.android.analytics.AnalyticsSanitizer
 import com.glomopay.sdk.android.analytics.AnalyticsTracker
 import com.glomopay.sdk.android.analytics.NoOpAnalyticsTracker
+import com.glomopay.sdk.android.carousel.EducationCarouselContract
 import com.glomopay.sdk.android.monitoring.NoOpSdkErrorReporter
 import com.glomopay.sdk.android.monitoring.SdkErrorReporter
 import org.json.JSONArray
@@ -68,6 +69,11 @@ internal class GlomoPayEventRouter(
                 }
                 "message" -> handlePaymentEvent(envelope["data"] as? Map<*, *>)
                 "dependencies.failed_to_load" -> emitDependencyError(envelope["message"]?.toString())
+                "webview.error" -> analytics.track(AnalyticsEvents.WEBVIEW_ERROR, mapOf(
+                    "error_type" to envelope["errorType"]?.toString(),
+                    "error_message" to envelope["message"]?.toString(),
+                    "webview_type" to webViewType,
+                ))
                 "file.input" -> {
                     analytics.track(AnalyticsEvents.FILE_UPLOAD_REQUESTED, mapOf(
                         "accept_types" to envelope["accept"]?.toString(),
@@ -155,6 +161,25 @@ internal class GlomoPayEventRouter(
             "glomoCheckoutJourneyTerminate" -> analytics.track(
                 AnalyticsEvents.PAY_VIA_BANK_COMPLETED,
                 mapOf("pay_via_bank_status" to payloadData["status"]?.toString()),
+            )
+            "lrs.has_education_steps" -> {
+                when (EducationCarouselContract.hasContent(payloadData)) {
+                    true -> {
+                        analytics.track(AnalyticsEvents.EDUCATION_STEPS_SHOWN, mapOf(
+                            "source" to payloadData["source"]?.toString(),
+                        ))
+                    }
+                    false -> {
+                        analytics.track(AnalyticsEvents.EDUCATION_STEPS_FAILED, mapOf(
+                            "reason" to (payloadData["reason"]?.toString() ?: "no_content"),
+                        ))
+                    }
+                    null -> Unit
+                }
+            }
+            "lrs.education_steps_failed", "lrs.education_steps_failed_to_show" -> analytics.track(
+                AnalyticsEvents.EDUCATION_STEPS_FAILED,
+                mapOf("reason" to (payloadData["reason"]?.toString() ?: "render_failed")),
             )
             "dependencies.failed_to_load" -> emitDependencyError(data["message"]?.toString(), "postMessage")
         }

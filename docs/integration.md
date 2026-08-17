@@ -128,6 +128,14 @@ Sentry client. It excludes NDK and Session Replay and disables app-wide uncaught
 session, PII, tracing, and profiling collection. Only failures explicitly captured within the
 GlomoPay SDK boundary are sent.
 
+### Sentry dependency compatibility
+
+The SDK transitively depends on `io.sentry:sentry:8.50.1`. Merchant applications
+that already use an older major version of Sentry should upgrade their
+`io.sentry:sentry-android` dependency to a compatible `8.x` version. Keeping the
+merchant application and the SDK on the same Sentry major version avoids Gradle
+dependency resolution and runtime compatibility issues.
+
 ## ProGuard/R8 and Sentry mappings
 
 No additional keep rules are required for normal SDK integration. The AAR packages consumer rules
