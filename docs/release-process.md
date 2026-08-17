@@ -20,6 +20,9 @@ From the repository root:
 ./gradlew clean test
 ./gradlew :glomo-android-sdk:assembleRelease
 
+# Confirm consumer ProGuard/R8 rules are packaged in the AAR.
+unzip -p glomo-android-sdk/build/outputs/aar/glomo-android-sdk-release.aar proguard.txt
+
 # Run wrapper QA from the standalone test app project when required.
 cd ../glomopay-android-sdk-test-app
 ./gradlew :app:testDebugUnitTest
@@ -68,6 +71,9 @@ Use the standalone test app APK only for QA. Consumers should depend on the publ
 - [ ] Changelog entry added.
 - [ ] Unit and integration tests pass.
 - [ ] Release AAR builds successfully.
+- [ ] AAR contains the expected `proguard.txt` consumer rules.
+- [ ] A minified wrapper release build completes and its checkout JavaScript bridge is smoke-tested.
+- [ ] Final-app mapping upload is configured in protected merchant CI when Sentry deobfuscation is required.
 - [ ] Sample app QA completed.
 - [ ] Maven metadata and signatures validate.
 - [ ] Deployment is visible in Central Portal/Maven Central.

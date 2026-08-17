@@ -18,19 +18,20 @@ out of PCI-DSS scope.
 A native card form would feel like a UX improvement and would be a compliance
 incident. If a requirement seems to need one, stop and raise it; do not build it.
 
-### HARD RULE — no third-party dependencies
+### HARD RULE — review third-party dependencies
 
-The SDK must depend on the Android framework and Kotlin stdlib only. No Retrofit,
-no OkHttp, no Gson/Moshi, no Sentry SDK, no external analytics SDK, no coroutines-adjacent
-convenience libraries.
+Every dependency this SDK declares becomes a transitive dependency in the
+merchant's app and must be reviewed for license, maintenance, privacy, size,
+and version-conflict risk. AndroidX, Kotlin stdlib, and `kotlinx` are accepted
+platform dependencies. Security-sensitive or operational dependencies require
+explicit approval before implementation.
 
-Why: every dependency this SDK declares becomes a **transitive dependency in the
-merchant's app**, where it can collide with the merchant's own version. There is
-no isolation mechanism. Do not add an external analytics or telemetry transport
-without explicit approval.
+The approved Sentry integration must remain SDK-owned and isolated: do not call
+global Sentry initialization or enable app-wide crash, ANR, NDK, or Session
+Replay collection. Mixpanel remains a dependency-free REST integration. Do not
+add another analytics or telemetry transport without explicit approval.
 
-If you believe a dependency is genuinely unavoidable, open a discussion before
-writing code. The answer is usually no.
+Document every new dependency and its justification in the PR description.
 
 ### HARD RULE — no customer data in this repository
 

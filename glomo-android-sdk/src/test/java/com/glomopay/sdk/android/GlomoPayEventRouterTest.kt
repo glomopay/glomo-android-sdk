@@ -2,6 +2,8 @@ package com.glomopay.sdk.android
 
 import com.glomopay.sdk.android.bridge.GlomoPayEventRouter
 import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
+import com.glomopay.sdk.android.analytics.AnalyticsEvent
+import com.glomopay.sdk.android.analytics.AnalyticsTracker
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -139,6 +141,52 @@ class GlomoPayEventRouterTest {
         assertEquals(1, listener.sdkErrors.size)
     }
 
+    @Test
+    fun router_maps_redirect_payment_and_dependency_events_to_analytics() {
+        val analytics = RecordingAnalytics()
+        val router = GlomoPayEventRouter(
+            listener = RecordingListener(),
+            devMode = false,
+            onComplete = {},
+            analytics = analytics,
+        )
+
+        router.handleEnvelope(mapOf(
+            "type" to "window.open",
+            "url" to "https://bank.example/verify?phone=9876543210",
+        ))
+        router.handleEnvelope(mapOf(
+            "type" to "message",
+            "data" to mapOf("type" to "payment.pending", "paymentId" to "pay_1"),
+        ))
+        router.handleEnvelope(mapOf("type" to "dependencies.failed_to_load", "message" to "Unavailable"))
+
+        assertEquals(
+            listOf("Redirect Opened", "Payment Pending", "Checkout Dependencies Failed"),
+            analytics.events.map { it.name },
+        )
+        assertEquals("https://bank.example", analytics.events.first().properties["url"])
+        assertEquals("main", analytics.events.first().properties["source"])
+        assertEquals("pay_1", analytics.events[1].properties["payment_id"])
+    }
+
+    @Test
+    fun malformed_bridge_message_is_analytics_safe_and_truncated() {
+        val analytics = RecordingAnalytics()
+        val router = GlomoPayEventRouter(
+            listener = RecordingListener(),
+            devMode = false,
+            onComplete = {},
+            analytics = analytics,
+        )
+
+        router.handle("{not-json user@example.com")
+
+        assertEquals("Invalid Message Received", analytics.events[0].name)
+        assertTrue(analytics.events[0].properties["data"].toString().contains("[REDACTED]"))
+        assertEquals("SDK Error", analytics.events[1].name)
+    }
+
     private class RecordingListener : GlomoPayListener {
         val success = mutableListOf<GlomoPayPayload>()
         val failure = mutableListOf<GlomoPayPayload>()
@@ -152,5 +200,17 @@ class GlomoPayEventRouterTest {
         override fun onConnectionError(error: ConnectionError) = Unit
         override fun onPaymentTerminate(source: TerminationSource) { termination += source }
         override fun onEvent(name: String, payload: Map<String, Any?>) { events += name to payload }
+    }
+
+    private class RecordingAnalytics : AnalyticsTracker {
+        val events = mutableListOf<AnalyticsEvent>()
+
+        override fun track(event: String, properties: Map<String, Any?>) {
+            events += AnalyticsEvent(event, properties)
+        }
+
+        override fun updateFlowType(flowType: String) = Unit
+
+        override fun updateCheckoutUrl(url: String) = Unit
     }
 }

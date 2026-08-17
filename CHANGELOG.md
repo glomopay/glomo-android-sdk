@@ -6,6 +6,26 @@ This project follows [Semantic Versioning](https://semver.org/).
 The public API is not stable until 1.0.0. Breaking changes may land in any
 0.x release.
 
+## Unreleased
+
+### Added
+
+- Added dependency-free Mixpanel REST analytics for SDK, compliance, checkout,
+  WebView, redirect, payment, error, and file-upload lifecycle events.
+- Added build-time `MIXPANEL_TOKEN` injection, PII filtering, external URL
+  sanitization, and fire-and-forget delivery that cannot block checkout.
+- Added an isolated SDK-owned Sentry client for explicitly captured SDK and
+  analytics delivery failures, with build-time `SENTRY_DSN` injection.
+- Kept global Sentry initialization, app-wide crash/ANR capture, NDK, Session
+  Replay, default PII, and performance tracing disabled.
+- Added consumer ProGuard/R8 rules that preserve JavaScript bridge callbacks and
+  source line metadata while allowing the remaining SDK code to be optimized.
+- Aligned Mixpanel telemetry with the mobile analytics v1.1 contract: hostname-only
+  bank URLs, special device/app properties, network transport signals, IP-derived
+  geolocation, explicit null values, session insert IDs, and `main`/`flow` WebView types.
+- Added the normal `ACCESS_NETWORK_STATE` permission for Wi-Fi/cellular telemetry;
+  it does not require a runtime permission prompt.
+
 ## [0.0.2]
 
 ### Changed
