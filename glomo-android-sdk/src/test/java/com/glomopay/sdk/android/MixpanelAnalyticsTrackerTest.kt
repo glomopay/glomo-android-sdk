@@ -25,7 +25,7 @@ class MixpanelAnalyticsTrackerTest {
                 devMode = true,
             ),
             sessionId = "session-uuid",
-            sdkVersion = "0.0.2",
+            sdkVersion = "1.0.0",
             initialFlowType = "auto",
             transport = AnalyticsTransport { events += it },
             executor = java.util.concurrent.Executor(Runnable::run),
@@ -64,7 +64,7 @@ class MixpanelAnalyticsTrackerTest {
         val tracker = MixpanelAnalyticsTracker(
             config = GlomoPayConfig(publicKey = "test_public_key", subscriptionId = "sub_123"),
             sessionId = "session-uuid",
-            sdkVersion = "0.0.2",
+            sdkVersion = "1.0.0",
             initialFlowType = "standard",
             transport = AnalyticsTransport { events += it },
             executor = java.util.concurrent.Executor(Runnable::run),
@@ -116,7 +116,7 @@ class MixpanelAnalyticsTrackerTest {
         val tracker = MixpanelAnalyticsTracker(
             config = GlomoPayConfig(publicKey = "test_public_key", orderId = "order_123"),
             sessionId = "session-uuid",
-            sdkVersion = "0.0.2",
+            sdkVersion = "1.0.0",
             initialFlowType = "standard",
             transport = AnalyticsTransport { error("HTTP 500") },
             executor = java.util.concurrent.Executor(Runnable::run),

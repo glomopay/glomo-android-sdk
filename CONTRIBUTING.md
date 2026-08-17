@@ -70,8 +70,9 @@ expensive to fix than an implementation bug.
   changes the surface, so the ABI change is visible in review.
 - Default to `internal`. Constants and config holders are `internal` unless
   a merchant genuinely needs them.
-- The SDK stays on **0.x until GlomoPay freezes the API**. Expect and propose
-  breaking changes freely while pre-1.0; do not tag 1.0.0 yourself.
+- From **1.0.0**, the public API follows Semantic Versioning. Breaking public
+  API changes require GlomoPay approval and a new major version. Release tags
+  and publication remain the responsibility of the GlomoPay release owner.
 
 ## 3. Build requirements
 

@@ -9,7 +9,7 @@ This guide explains how to publish the native GlomoPay Kotlin SDK as a public Ma
 ```text
 Group ID:    com.glomopay
 Artifact ID: glomo-android-sdk
-Version:     0.0.2
+Version:     1.0.0
 ```
 
 Consumers will eventually add the SDK with:
@@ -20,7 +20,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomo-android-sdk:0.0.2")
+    implementation("com.glomopay:glomo-android-sdk:1.0.0")
 }
 ```
 
@@ -94,7 +94,7 @@ The publishable module is `glomo-android-sdk/`. Its release identity is configur
 
 ```kotlin
 group = "com.glomopay"
-version = "0.0.2"
+version = "1.0.0"
 ```
 
 The publishing setup must generate the release AAR, POM, sources JAR, Javadoc or Dokka JAR, checksums, and GPG signatures. The standalone test app is not included in the SDK publication.
@@ -136,7 +136,7 @@ The configured task uploads the signed publication to the Central Portal.
 4. Publish the validated deployment if manual confirmation is required.
 5. Wait for Maven Central synchronization.
 
-The artifact must be available at `com.glomopay:glomo-android-sdk:0.0.2`.
+The artifact must be available at `com.glomopay:glomo-android-sdk:1.0.0`.
 
 ## Step 10: Verify from a clean consumer project
 
@@ -149,7 +149,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomo-android-sdk:0.0.2")
+    implementation("com.glomopay:glomo-android-sdk:1.0.0")
 }
 ```
 
@@ -162,8 +162,8 @@ Then run `./gradlew clean assembleDebug` and open a checkout through `GlomoPaySd
 3. Create and push the Git tag:
 
 ```bash
-git tag 0.0.2
-git push origin 0.0.2
+git tag 1.0.0
+git push origin 1.0.0
 ```
 
 4. Share the Maven dependency, not the sample APK, with client developers.

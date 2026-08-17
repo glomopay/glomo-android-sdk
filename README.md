@@ -5,7 +5,7 @@ flows into Android applications.
 
 ## Current Status
 
-Version `0.0.2` is implemented and available for local integration testing.
+Version `1.0.0` is prepared for release and available for local integration testing.
 Maven Central publication is planned; until then, use the local module or the
 published artifact when it becomes available.
 
@@ -30,7 +30,7 @@ current implementation detail. See [CONTRIBUTING.md](CONTRIBUTING.md).
 | Kotlin | 2.0.21 or compatible |
 | Java/JVM target | 17 |
 | Kotlin/Java package | `com.glomopay.sdk.android` |
-| Planned Maven coordinates | `com.glomopay:glomo-android-sdk:0.0.2` |
+| Planned Maven coordinates | `com.glomopay:glomo-android-sdk:1.0.0` |
 
 **Why minSdk 24.** The deciding factor is TLS, not market share. Devices below
 Android 7.1.1 carry a stale CA trust store and can fail handshakes against modern
@@ -54,7 +54,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomo-android-sdk:0.0.2")
+    implementation("com.glomopay:glomo-android-sdk:1.0.0")
 }
 ```
 

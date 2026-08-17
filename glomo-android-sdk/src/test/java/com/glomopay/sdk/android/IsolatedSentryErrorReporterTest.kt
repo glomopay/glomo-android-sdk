@@ -57,7 +57,7 @@ class IsolatedSentryErrorReporterTest {
     fun isolated_options_disable_global_and_pii_features() {
         val options = createIsolatedSentryOptions(
             dsn = "https://public@example.invalid/1",
-            sdkVersion = "0.0.2",
+            sdkVersion = "1.0.0",
         )
 
         assertFalse(options.isSendDefaultPii)

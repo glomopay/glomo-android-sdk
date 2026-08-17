@@ -3,10 +3,12 @@
 All notable changes to the Glomo Android SDK are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-The public API is not stable until 1.0.0. Breaking changes may land in any
-0.x release.
+Starting with 1.0.0, the public API follows Semantic Versioning. Breaking
+public API changes require a new major release.
 
 ## Unreleased
+
+## [1.0.0] - 2026-08-17
 
 ### Added
 
@@ -25,6 +27,18 @@ The public API is not stable until 1.0.0. Breaking changes may land in any
   geolocation, explicit null values, session insert IDs, and `main`/`flow` WebView types.
 - Added the normal `ACCESS_NETWORK_STATE` permission for Wi-Fi/cellular telemetry;
   it does not require a runtime permission prompt.
+
+### Fixed
+
+- Fixed a WebView callback race that could leave checkout stuck behind the
+  `Loading checkout... 100%` overlay.
+- Fixed valid ISO-8601 Mixpanel timestamps being incorrectly redacted by the
+  generic numeric PII sanitizer.
+
+### Changed
+
+- Declared the first stable Android SDK release and applied Semantic Versioning
+  guarantees to the public API.
 
 ## [0.0.2]
 
