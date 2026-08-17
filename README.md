@@ -140,16 +140,16 @@ The hosted checkout remains responsible for payment UI, bank authentication,
 
 ## Testing
 
-Run SDK unit tests from this repository:
+Run the SDK and sample-app tests from this repository:
 
 ```bash
-./gradlew :glomo-android-sdk:test
+./gradlew :glomo-android-sdk:testDebugUnitTest :sample-app:testDebugUnitTest
 ```
 
-The standalone wrapper app is maintained separately at
-`glomopay-android-sdk-test-app`. It is used to test Standard, LRS,
-subscription, validation, developer-mode, bank redirect, and file-upload
-flows. The wrapper APK is a QA artifact and is not the SDK dependency.
+The in-repository [`sample-app`](sample-app/README.md) consumes the local SDK
+module and is used to test Standard, LRS, subscription, validation,
+developer-mode, bank redirect, and file-upload flows. The sample APK is a QA
+artifact and is not the SDK dependency.
 
 ## Analytics and privacy
 

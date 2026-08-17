@@ -23,10 +23,9 @@ From the repository root:
 # Confirm consumer ProGuard/R8 rules are packaged in the AAR.
 unzip -p glomo-android-sdk/build/outputs/aar/glomo-android-sdk-release.aar proguard.txt
 
-# Run wrapper QA from the standalone test app project when required.
-cd ../glomopay-android-sdk-test-app
-./gradlew :app:testDebugUnitTest
-./gradlew :app:assembleRelease
+# Run the in-repository sample app tests and build.
+./gradlew :sample-app:testDebugUnitTest
+./gradlew :sample-app:assembleDebug
 ```
 
 Manually test Standard, LRS, subscription, validation-error, connection-error, and developer-mode scenarios in the sample app.

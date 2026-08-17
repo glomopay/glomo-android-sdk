@@ -105,9 +105,8 @@ From the repository root:
 
 ```bash
 ./gradlew clean test
-cd ../glomopay-android-sdk-test-app
-./gradlew :app:testDebugUnitTest
 ./gradlew :glomo-android-sdk:assembleRelease
+./gradlew :sample-app:testDebugUnitTest :sample-app:assembleDebug
 ```
 
 Manually test Standard, LRS, subscription, validation-error, connection-error, and developer-mode scenarios in the sample app.

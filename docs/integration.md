@@ -15,7 +15,8 @@ dependencies {
 }
 ```
 
-For local testing, use the standalone [Android SDK test app](../../glomopay-android-sdk-test-app/README.md). It links the sibling `glomo-android-sdk` module with `implementation(project(":glomo-android-sdk"))`.
+For local testing, use the in-repository [sample app](../sample-app/README.md).
+It links the SDK with `implementation(project(":glomo-android-sdk"))`.
 
 ## Configure checkout
 
@@ -77,8 +78,7 @@ Pass `orderType = "standard"` or `orderType = "lrs"` only when the host intentio
 From the repository root:
 
 ```bash
-cd ../glomopay-android-sdk-test-app
-./gradlew :app:installDebug
+./gradlew :sample-app:installDebug
 ```
 
 The sample app accepts a public key and order/subscription ID, enables developer mode for testing, and records callback events on screen.
