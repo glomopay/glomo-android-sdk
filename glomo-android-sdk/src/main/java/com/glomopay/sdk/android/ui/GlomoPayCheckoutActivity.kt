@@ -138,7 +138,7 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun buildContentView() {
-        webView = CheckoutWebViewFactory.create(this, config.devMode).apply {
+        webView = CheckoutWebViewFactory.create(this).apply {
             webViewClient = CheckoutWebViewClient(
                 onPageStartedCallback = { url ->
                     currentUrl = url
@@ -325,7 +325,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         currentOrderType = orderType.lowercase()
         if (currentOrderType != "lrs" || config.isSubscription) return
 
-        val carousel = CheckoutWebViewFactory.create(this, config.devMode)
+        val carousel = CheckoutWebViewFactory.create(this)
         carousel.webViewClient = CheckoutWebViewClient(
             onPageStartedCallback = {
                 carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
@@ -499,7 +499,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
         content.addView(carouselContainer, LinearLayout.LayoutParams(-1, 0, 0f))
         content.addView(paymentContainer, LinearLayout.LayoutParams(-1, 0, 100f))
-        val flow = CheckoutWebViewFactory.create(this, config.devMode)
+        val flow = CheckoutWebViewFactory.create(this)
         val flowLoading = TextView(this).apply {
             text = getString(R.string.glomopay_opening_secure_page)
             textSize = 15f
