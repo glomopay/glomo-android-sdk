@@ -13,6 +13,16 @@ public API changes require a new major release.
 - Added automatic LRS education carousel support above the secure bank flow,
   with a responsive 15/85 split, hidden fallback, and per-checkout state reset.
 
+### Fixed
+
+- Checkout session teardown no longer calls `CookieManager.removeAllCookies()`,
+  which wiped the host app's process-wide cookie store. WebView-local cache,
+  history, form, and SSL state are still cleared.
+- The SDK no longer sets the process-global `WebView.setWebContentsDebuggingEnabled`
+  flag from checkout.
+- `GlomoPayApiClient.fetchOrder` failures report HTTP status only and no longer
+  print or embed response bodies.
+
 ## [1.0.0] - 2026-08-17
 
 ### Added

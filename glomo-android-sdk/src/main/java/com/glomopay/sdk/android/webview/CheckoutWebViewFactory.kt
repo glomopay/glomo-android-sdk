@@ -8,7 +8,7 @@ import android.webkit.WebView
 
 internal object CheckoutWebViewFactory {
     @SuppressLint("SetJavaScriptEnabled")
-    fun create(context: Context, devMode: Boolean): WebView = WebView(context).apply {
+    fun create(context: Context): WebView = WebView(context).apply {
         setBackgroundColor(android.graphics.Color.WHITE)
         settings.apply {
             javaScriptEnabled = true
@@ -23,7 +23,6 @@ internal object CheckoutWebViewFactory {
         }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-        if (devMode) WebView.setWebContentsDebuggingEnabled(true)
     }
 
     fun clearSession(webView: WebView) {
@@ -32,7 +31,6 @@ internal object CheckoutWebViewFactory {
         webView.clearFormData()
         webView.clearSslPreferences()
         webView.loadUrl("about:blank")
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
+        // CookieManager is process-wide; do not call removeAllCookies().
     }
 }
