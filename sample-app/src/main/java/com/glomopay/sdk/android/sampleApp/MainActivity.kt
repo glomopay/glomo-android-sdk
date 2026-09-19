@@ -14,11 +14,11 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.widget.SwitchCompat
 import com.glomopay.sdk.android.ConnectionError
 import com.glomopay.sdk.android.GlomoPayConfig
 import com.glomopay.sdk.android.GlomoPayListener
 import com.glomopay.sdk.android.GlomoPayPayload
+import com.glomopay.sdk.android.GlomoPayUserJourneyPayload
 import com.glomopay.sdk.android.GlomoPaySdk
 import com.glomopay.sdk.android.SdkError
 import com.glomopay.sdk.android.TerminationSource
@@ -33,7 +33,6 @@ class MainActivity : Activity(), GlomoPayListener {
 
     private lateinit var publicKeyInput: EditText
     private lateinit var identifierInput: EditText
-    private lateinit var devModeInput: SwitchCompat
     private lateinit var statusLabel: TextView
     private lateinit var eventLog: TextView
 
@@ -78,29 +77,6 @@ class MainActivity : Activity(), GlomoPayListener {
         identifierInput = field("Order ID / Subscription ID", "Enter order ID or subscription ID")
         content.addView(labeledField("Public Key", publicKeyInput), fieldGroupParams())
         content.addView(labeledField("Order ID / Subscription ID", identifierInput), fieldGroupParams())
-
-        val optionsCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = rounded(Color.WHITE, 20, Color.rgb(232, 222, 242))
-        }
-        devModeInput = SwitchCompat(this).apply {
-            text = "Dev Mode"
-            isChecked = true
-            setTextColor(ink)
-            textSize = 15f
-            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-            trackTintList = ColorStateList(
-                states,
-                intArrayOf(Color.rgb(111, 82, 170), Color.rgb(190, 169, 212)),
-            )
-            thumbTintList = ColorStateList(
-                states,
-                intArrayOf(Color.rgb(255, 211, 102), Color.rgb(248, 240, 255)),
-            )
-        }
-        optionsCard.addView(devModeInput)
-        content.addView(optionsCard, cardParams())
 
         content.addView(Button(this).apply {
             text = "START CHECKOUT"
@@ -158,7 +134,7 @@ class MainActivity : Activity(), GlomoPayListener {
             return
         }
 
-        val state = CheckoutFormState(publicKey, identifier, devModeInput.isChecked)
+        val state = CheckoutFormState(publicKey, identifier)
         try {
             val config: GlomoPayConfig = state.toConfig()
             statusLabel.text = "Status: Starting"
@@ -179,6 +155,11 @@ class MainActivity : Activity(), GlomoPayListener {
     override fun onPaymentFailure(payload: GlomoPayPayload) {
         updateStatus("Payment failed")
         appendEvent("payment.failure")
+    }
+
+    override fun onUserJourneyCompleted(payload: GlomoPayUserJourneyPayload) {
+        updateStatus("Bank transfer submitted")
+        appendEvent("journey.completed type=${payload.journeyType} orderId=${payload.orderId} ref=${payload.transactionReference}")
     }
 
     override fun onSdkError(errors: List<SdkError>) {

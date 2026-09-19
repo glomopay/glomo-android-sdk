@@ -112,7 +112,7 @@ internal object SdkErrorReporterFactory {
                 client = bundle.captureClient,
                 sessionId = sessionId,
                 initialFlowType = flowType,
-                devMode = config.devMode,
+                devMode = com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD,
             )
         }.getOrElse {
             GlomoPayLogger.error("Unable to initialize isolated Sentry client", it)

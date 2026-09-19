@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="glomopay_connection_error">Connection problem</string>
+    <string name="glomopay_connection_message">Unable to load this page. Please check your connection and try again.</string>
+    <string name="glomopay_taking_longer">Checkout is taking longer than expected. You can retry or close checkout.</string>
+    <string name="glomopay_retry">Retry</string>
+    <string name="glomopay_cancel">Cancel</string>
+    <string name="glomopay_session_interrupted">Checkout was interrupted. Please start checkout again.</string>
+    <string name="glomopay_upload_document">Upload document</string>
+    <string name="glomopay_camera">Camera</string>
+    <string name="glomopay_gallery">Gallery</string>
+    <string name="glomopay_files">Files</string>
     <string name="glomopay_back">Back</string>
     <string name="glomopay_loading_checkout">Loading checkout...</string>
     <string name="glomopay_loading_checkout_progress">Loading checkout... %1$d%%</string>

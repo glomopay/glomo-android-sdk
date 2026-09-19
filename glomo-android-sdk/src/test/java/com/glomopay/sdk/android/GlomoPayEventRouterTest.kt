@@ -33,20 +33,36 @@ class GlomoPayEventRouterTest {
     }
 
     @Test
-    fun failure_requires_a_complete_payment_payload() {
+    fun failure_is_delivered_on_the_event_name_without_a_signature() {
+        // A failure payload has never carried a signature; requiring one meant
+        // onPaymentFailure could not fire for a confirmed decline in any release build.
+        for (eventName in listOf("payment.failure", "payment.failed", "failed", "payment.error")) {
+            val listener = RecordingListener()
+            val router = GlomoPayEventRouter(listener, devMode = false, onComplete = {})
+
+            router.handleEnvelope(mapOf("type" to "message", "data" to mapOf(
+                "type" to eventName,
+                "payload" to mapOf("orderId" to "order_1", "reason" to "issuer_declined"),
+            )))
+
+            assertEquals("order_1", listener.failure.single().orderId)
+            assertEquals(null, listener.failure.single().signature)
+            assertEquals("issuer_declined", listener.failure.single().rawResponse?.get("reason"))
+        }
+    }
+
+    @Test
+    fun thin_failure_payload_is_still_delivered_and_captured() {
         val listener = RecordingListener()
-        val router = GlomoPayEventRouter(listener, devMode = false, onComplete = {})
+        val reporter = RecordingReporter()
+        val router = GlomoPayEventRouter(
+            listener, devMode = false, onComplete = {}, errorReporter = reporter,
+        )
 
-        router.handleEnvelope(mapOf("type" to "message", "data" to mapOf(
-            "type" to "payment.failure", "payload" to mapOf("orderId" to "order_1"),
-        )))
-        assertTrue(listener.failure.isEmpty())
+        router.handleEnvelope(mapOf("type" to "message", "data" to mapOf("type" to "payment.failure")))
 
-        router.handleEnvelope(mapOf("type" to "message", "data" to mapOf(
-            "type" to "payment.failed",
-            "payload" to mapOf("orderId" to "order_1", "paymentId" to "pay_1", "signature" to "sig_1"),
-        )))
-        assertEquals("order_1", listener.failure.single().orderId)
+        assertEquals(1, listener.failure.size)
+        assertEquals("thin_payment_failure_payload", reporter.operations.single())
     }
 
     @Test
@@ -54,11 +70,11 @@ class GlomoPayEventRouterTest {
         val listener = RecordingListener()
         val router = GlomoPayEventRouter(listener, devMode = false, onComplete = {})
 
-        router.handleEnvelope(mapOf("type" to "message", "data" to mapOf("type" to "payment.cancelled")))
         router.handleEnvelope(mapOf("type" to "dependencies.failed_to_load", "message" to "LRS unavailable"))
+        router.handleEnvelope(mapOf("type" to "message", "data" to mapOf("type" to "payment.cancelled")))
 
         assertEquals(TerminationSource.USER_DISMISS, listener.termination.single())
-        assertTrue(listener.events.any { it.first == "checkout.dependencies_failed" })
+        assertTrue(listener.events.any { it.first == "glomo_android_sdk.checkout.dependencies_failed" })
     }
 
     @Test
@@ -111,8 +127,8 @@ class GlomoPayEventRouterTest {
         router.handleEnvelope(mapOf(
             "type" to "message",
             "data" to mapOf(
-                "type" to "lrs.has_education_steps",
-                "value" to true,
+                "event" to "lrs.has_education_steps",
+                "hasContent" to true,
                 "source" to "checkout",
             ),
         ))
@@ -178,19 +194,73 @@ class GlomoPayEventRouterTest {
     }
 
     @Test
-    fun bank_transfer_completes_successfully() {
+    fun bank_transfer_is_a_user_journey_and_never_a_payment_success() {
+        val listener = RecordingListener()
         var result: GlomoPayResult? = null
+        val router = GlomoPayEventRouter(listener, devMode = false, onComplete = { result = it })
+
+        router.handleEnvelope(mapOf("type" to "message", "data" to mapOf(
+            "type" to "payment.bank_transfer_submitted",
+            "payload" to mapOf(
+                "orderId" to "order_1",
+                "sender_account_number" to "000123456789",
+                "transactionReference" to "utr_1",
+                "status" to "submitted",
+            ),
+        )))
+
+        // No money has moved: reporting this as a payment success handed the host a
+        // payload with no paymentId and no signature to verify against.
+        assertTrue(listener.success.isEmpty())
+        val journey = listener.journeys.single()
+        assertEquals(GlomoPayUserJourneyType.BANK_TRANSFER, journey.journeyType)
+        assertEquals("order_1", journey.orderId)
+        // Both casings are read, because the page has sent both.
+        assertEquals("000123456789", journey.senderAccountNumber)
+        assertEquals("utr_1", journey.transactionReference)
+        assertEquals("submitted", journey.status)
+        assertTrue(result is GlomoPayResult.JourneyCompleted)
+    }
+
+    @Test
+    fun bank_transfer_fields_survive_non_string_values_and_camel_case() {
+        val listener = RecordingListener()
+        val router = GlomoPayEventRouter(listener, devMode = false, onComplete = {})
+
+        router.handleEnvelope(mapOf("type" to "message", "data" to mapOf(
+            "type" to "payment.bank_transfer_submitted",
+            "payload" to mapOf(
+                "order_id" to "order_2",
+                "senderAccountNumber" to 123456789L,
+                "transaction_reference" to 42,
+            ),
+        )))
+
+        val journey = listener.journeys.single()
+        assertEquals("order_2", journey.orderId)
+        assertEquals("123456789", journey.senderAccountNumber)
+        assertEquals("42", journey.transactionReference)
+        assertEquals(null, journey.status)
+    }
+
+    @Test
+    fun thin_bank_transfer_payload_is_rejected_but_leaves_a_trace() {
+        val listener = RecordingListener()
+        val reporter = RecordingReporter()
+        var completions = 0
         val router = GlomoPayEventRouter(
-            listener = RecordingListener(),
-            devMode = false,
-            onComplete = { result = it },
+            listener, devMode = false, onComplete = { completions++ }, errorReporter = reporter,
         )
 
         router.handleEnvelope(mapOf("type" to "message", "data" to mapOf(
             "type" to "payment.bank_transfer_submitted",
-            "payload" to mapOf("orderId" to "order_1"),
+            "payload" to mapOf("status" to "submitted"),
         )))
-        assertTrue(result is GlomoPayResult.Success)
+
+        assertTrue(listener.journeys.isEmpty())
+        assertTrue(listener.success.isEmpty())
+        assertEquals(0, completions)
+        assertEquals("thin_bank_transfer_payload", reporter.operations.single())
     }
 
     @Test
@@ -255,13 +325,25 @@ class GlomoPayEventRouterTest {
         val termination = mutableListOf<TerminationSource>()
         val events = mutableListOf<Pair<String, Map<String, Any?>>>()
         val sdkErrors = mutableListOf<List<SdkError>>()
+        val journeys = mutableListOf<GlomoPayUserJourneyPayload>()
 
         override fun onPaymentSuccess(payload: GlomoPayPayload) { success += payload }
         override fun onPaymentFailure(payload: GlomoPayPayload) { failure += payload }
         override fun onSdkError(errors: List<SdkError>) { sdkErrors += errors }
+        override fun onUserJourneyCompleted(payload: GlomoPayUserJourneyPayload) { journeys += payload }
         override fun onConnectionError(error: ConnectionError) = Unit
         override fun onPaymentTerminate(source: TerminationSource) { termination += source }
         override fun onEvent(name: String, payload: Map<String, Any?>) { events += name to payload }
+    }
+
+    private class RecordingReporter : com.glomopay.sdk.android.monitoring.SdkErrorReporter {
+        val operations = mutableListOf<String>()
+
+        override fun addBreadcrumb(category: String, message: String, data: Map<String, Any?>) = Unit
+        override fun capture(operation: String, error: Throwable, context: Map<String, Any?>) {
+            operations += operation
+        }
+        override fun updateFlowType(flowType: String) = Unit
     }
 
     private class RecordingAnalytics : AnalyticsTracker {

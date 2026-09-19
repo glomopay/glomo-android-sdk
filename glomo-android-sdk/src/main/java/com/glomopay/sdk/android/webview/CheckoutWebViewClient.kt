@@ -18,8 +18,17 @@ internal class CheckoutWebViewClient(
     private val onPageFinishedCallback: (String) -> Unit,
     private val onUrlChangedCallback: (String) -> Unit,
     private val onErrorCallback: (ConnectionError) -> Unit,
+    private val onNavigationBlocked: ((String) -> Unit)? = null,
 ) : WebViewClient() {
+    private fun blockNavigation(url: String): Boolean {
+        val blocked = onNavigationBlocked ?: return false
+        if (FlowNavigationPolicy.allows(url)) return false
+        blocked(url)
+        return true
+    }
+
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        if (blockNavigation(request.url.toString())) return true
         onUrlChangedCallback(request.url.toString())
         return false
     }
@@ -27,6 +36,7 @@ internal class CheckoutWebViewClient(
     @Suppress("DEPRECATION")
     @Deprecated("WebView compatibility callback")
     override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+        if (blockNavigation(url)) return true
         onUrlChangedCallback(url)
         return false
     }

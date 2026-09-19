@@ -51,6 +51,7 @@ internal object AnalyticsEvents {
     const val EDUCATION_STEPS_FAILED = "Education Steps Failed"
     const val FILE_UPLOAD_REQUESTED = "File Upload Requested"
     const val FILE_PICKER_ERROR = "File Picker Error"
+    const val DEVICE_PERMISSION_REFUSED = "Device Permission Refused"
     const val CONSOLE_LOG_CAPTURED = "Console Log Captured"
     const val UNSUPPORTED_FUNCTIONALITY_USED = "Unsupported Functionality Used"
 }

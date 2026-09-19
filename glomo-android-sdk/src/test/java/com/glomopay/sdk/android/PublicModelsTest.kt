@@ -13,8 +13,7 @@ class PublicModelsTest {
 
         assertEquals("sub_123", config.checkoutId)
         assertTrue(config.isSubscription)
-        assertTrue(config.copyWith(devMode = true).devMode)
-        assertEquals("sub_123", config.copyWith(devMode = true).checkoutId)
+        assertEquals("sub_123", config.copyWith(server = "https://example.test").checkoutId)
     }
 
     @Test
@@ -81,6 +80,35 @@ class PublicModelsTest {
     }
 
     @Test
+    fun user_journey_type_members_are_append_only() {
+        // Pinned on purpose: hosts and stored records key off member order, so an
+        // inserted member would silently re-label every journey already recorded.
+        assertEquals(listOf("BANK_TRANSFER"), GlomoPayUserJourneyType.entries.map { it.name })
+        assertEquals(0, GlomoPayUserJourneyType.BANK_TRANSFER.ordinal)
+    }
+
+    @Test
+    fun user_journey_payload_keeps_the_page_response_verbatim() {
+        val json = mapOf<String, Any?>(
+            "order_id" to "order_1",
+            "senderAccountNumber" to "000123456789",
+            "transaction_reference" to "utr_1",
+            "status" to "",
+            "extra" to mapOf("bank" to "example"),
+        )
+
+        val payload = GlomoPayUserJourneyPayload.fromMap(GlomoPayUserJourneyType.BANK_TRANSFER, json)
+
+        assertEquals("order_1", payload.orderId)
+        assertEquals("000123456789", payload.senderAccountNumber)
+        assertEquals("utr_1", payload.transactionReference)
+        // Empty strings are absent, not values.
+        assertEquals(null, payload.status)
+        assertEquals(json, payload.rawResponse)
+        assertEquals("BANK_TRANSFER", payload.toMap()["journeyType"])
+    }
+
+    @Test
     fun connection_error_matches_flutter_recoverability() {
         assertTrue(ConnectionError.fromWebResourceError("offline", -2).isRecoverable)
         assertTrue(ConnectionError.fromWebResourceError("timeout", -7).isRecoverable)
@@ -89,18 +117,4 @@ class PublicModelsTest {
         assertEquals("Page Not Found", ConnectionError.fromHttpStatus(404).message)
     }
 
-    @Test
-    fun checkout_status_has_same_order_as_flutter() {
-        assertEquals(
-            listOf(
-                CheckoutStatus.READY,
-                CheckoutStatus.VALIDATING,
-                CheckoutStatus.PAYMENT_IN_PROGRESS,
-                CheckoutStatus.PAYMENT_SUCCESSFUL,
-                CheckoutStatus.PAYMENT_FAILED,
-                CheckoutStatus.PAYMENT_CANCELLED,
-            ),
-            CheckoutStatus.entries,
-        )
-    }
 }

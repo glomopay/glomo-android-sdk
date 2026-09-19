@@ -15,6 +15,6 @@ class DeviceCompliancePolicyTest {
     fun test_and_dev_mode_do_not_require_strict_compliance() {
         assertFalse(CompliancePolicy.requiresStrictCheck(GlomoPayConfig("test_key", orderId = "order_1")))
         assertFalse(CompliancePolicy.requiresStrictCheck(GlomoPayConfig("mock_key", orderId = "order_1")))
-        assertFalse(CompliancePolicy.requiresStrictCheck(GlomoPayConfig("live_key", orderId = "order_1", devMode = true)))
+        assertFalse(CompliancePolicy.requiresStrictCheck(GlomoPayConfig("live_key", orderId = "order_1"), internalBuild = true))
     }
 }

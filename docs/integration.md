@@ -28,7 +28,6 @@ class CheckoutActivity : Activity(), GlomoPayListener {
         val config = GlomoPayConfig(
             publicKey = "live_public_key",
             orderId = orderId,
-            devMode = false,
         )
 
         GlomoPaySdk.startCheckout(this, config, this)
@@ -57,14 +56,14 @@ For an order ID, the SDK applies this rule:
 1. A non-empty `orderType` response field wins.
 2. Otherwise, a non-null `lrs` response field selects LRS.
 3. Otherwise, Standard is selected.
-4. If order detection fails, Standard is used as a safe fallback.
+4. If order detection fails, checkout is not opened: the failure is delivered through `onConnectionError` (timeout, no connectivity) or `onSdkError` (HTTP status, malformed response) and the session ends. No order type is guessed, because guessing "standard" would route LRS traffic to the wrong checkout host.
 
 Pass `orderType = "standard"` or `orderType = "lrs"` only when the host intentionally wants to override automatic detection. The sample app uses `auto` so the API remains the source of truth. Subscription IDs currently open the Standard checkout flow.
 
 ## Configuration rules
 
 - Provide exactly one of `orderId` or `subscriptionId`.
-- Use `test_` or `mock_` public keys with `devMode = true` for local testing.
+- Use `test_` or `mock_` public keys for local testing. There is no merchant-settable `devMode`; SDK owners build a separate `-internal` artifact with `-PGLOMO_INTERNAL_BUILD=true`.
 - Use a `live_` public key only for production on a compliant device.
 - Do not log keys, identifiers, payment payloads, or signatures in production.
 - Verify payment results on the merchant backend before fulfilling an order.
@@ -72,6 +71,16 @@ Pass `orderType = "standard"` or `orderType = "lrs"` only when the host intentio
 ## Events and errors
 
 `onEvent` provides diagnostic WebView and checkout lifecycle events. `onSdkError` is for SDK validation/device errors, while `onConnectionError` is for network and WebView failures. `onPaymentTerminate` is called when the user or SDK closes checkout.
+
+`onPaymentFailure` is delivered on the checkout's failure event itself. Do not expect a
+`signature` on it: that field exists so a host can verify a *success*, and a failure payload
+has never carried one. The page's response travels verbatim in `rawResponse`.
+
+`onUserJourneyCompleted` is required and reports a non-payment journey - today, submitted
+bank-transfer details. It is not a payment result: there is no `paymentId` and no `signature`,
+and no money has moved. Reconcile it server-side against the order, and never fulfil an order
+from it. Hosts that previously received this through `onPaymentSuccess` were being told a
+payment had completed when it had not.
 
 ## Local sample app
 

@@ -8,12 +8,16 @@ import android.webkit.WebView
 
 internal object CheckoutWebViewFactory {
     @SuppressLint("SetJavaScriptEnabled")
-    fun create(context: Context, devMode: Boolean): WebView = WebView(context).apply {
+    @Suppress("DEPRECATION")
+    fun create(context: Context): WebView = WebView(context).apply {
         setBackgroundColor(android.graphics.Color.WHITE)
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = false
+            allowFileAccessFromFileURLs = false
+            allowUniversalAccessFromFileURLs = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             // File uploads return content:// URIs from the Android picker.
             // WebView must be allowed to read those URIs after selection.
             allowContentAccess = true
@@ -21,9 +25,9 @@ internal object CheckoutWebViewFactory {
             mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
         }
-        CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-        if (devMode) WebView.setWebContentsDebuggingEnabled(true)
+        // A fresh WebView starts with empty navigation/form state. Shared cookies,
+        // WebStorage and the process-wide disk cache belong to the embedding app.
     }
 
     fun clearSession(webView: WebView) {
@@ -32,7 +36,7 @@ internal object CheckoutWebViewFactory {
         webView.clearFormData()
         webView.clearSslPreferences()
         webView.loadUrl("about:blank")
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
+        // CookieManager is process-wide; clearing it would erase merchant/bank sessions.
+        // Android has no per-WebView cookie clearing API.
     }
 }

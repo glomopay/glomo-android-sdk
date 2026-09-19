@@ -76,7 +76,6 @@ class CheckoutActivity : Activity(), GlomoPayListener {
         val config = GlomoPayConfig(
             publicKey = "live_public_key",
             orderId = orderId,
-            devMode = false,
         )
 
         GlomoPaySdk.startCheckout(this, config, this, orderType = "auto")
@@ -112,17 +111,51 @@ val config = GlomoPayConfig(
     publicKey = "test_public_key",
     orderId = "order_example",
     server = null,
-    devMode = true,
 )
 ```
 
 Guidelines:
 
-- Use `test_` or `mock_` keys with `devMode = true` for development and QA.
+- Use `test_` or `mock_` keys for development and QA.
 - Use live keys only in production and on compliant devices.
 - Never log public keys, identifiers, payment signatures, or raw payment data
   in production.
 - Verify successful payments server-side before delivering goods or services.
+
+`startCheckout` returns a `GlomoPayCheckoutHandle`. Retain it to dismiss that
+session with `handle.close()`; the listener receives `PROGRAMMATIC` once.
+Calls after completion do nothing, and closing one handle does not close another session.
+
+There is no merchant-settable `devMode`. SDK owners can build a distinct
+`-internal` artifact with `-PGLOMO_INTERNAL_BUILD=true`; any other value defaults
+to false. The value is baked into the AAR, and analytics still reports `dev_mode`
+with either value. Internal artifacts must not be distributed to merchants.
+Remote WebView debugging is controlled by the embedding application.
+
+The checkout Activity declares `configChanges` for UI mode, locale, layout
+direction, font scale, density, keyboard and size changes, so a dark-mode toggle,
+locale change or multi-window resize does not restart a live payment.
+
+After Activity recreation, checkout ends instead of replaying an interrupted
+payment page. If the process is still alive, the listener receives an SDK error;
+after process death, the lost listener cannot be recovered and no payment page
+is opened. Start a new checkout from the merchant app after checking order status.
+Listeners are retained for the active session and released on completion or launch failure.
+
+`onUserJourneyCompleted` is required and has no default implementation, so every
+integration must add it. It reports a non-payment journey - today, submitted
+bank-transfer details - carrying `GlomoPayUserJourneyPayload`, which has no
+`paymentId` and no `signature` because no money has moved. Reconcile it
+server-side against the order; never fulfil an order from it. This used to arrive
+through `onPaymentSuccess`, which told hosts a payment had completed when it had not.
+
+`onPaymentFailure` is delivered on the checkout's failure event itself and does not
+require a `signature`, which a failure payload has never carried.
+
+`onEvent` is a deprecated diagnostic channel. SDK events use the
+`glomo_android_sdk.` prefix; page events retain their original names. Use the
+typed payment and error callbacks for integration logic. Unused `CheckoutStatus`
+was removed, and `GlomoPayResult` is now internal.
 
 ## WebView and File Upload Behavior
 
@@ -131,12 +164,35 @@ The SDK provides:
 - Native main checkout WebView and a separate secure bank/3DS flow overlay.
 - JavaScript bridge events for payment, redirect, navigation, and errors.
 - Android native file chooser support for hosted bank upload fields, including
-  PDF/document uploads.
+  PDF/document uploads, with a Camera / Gallery / Files choice. Camera captures are
+  capped at 2048px and JPEG quality 85 to stay under the bank's upload limit; do not
+  raise those caps without re-confirming with the bank. If the user refuses the camera
+  permission, the upload is cancelled, `onUserRefusedDevicePermissions` is delivered,
+  and checkout stays open. `accept` only decides which picker opens - it never restricts
+  what the user may choose, because the bank re-validates every upload.
 - Loading, connection-error, retry, and back-navigation handling.
 - Root, debugger, and developer-mode compliance checks for live sessions.
 
 The hosted checkout remains responsible for payment UI, bank authentication,
 3DS, and validation of uploaded documents.
+
+Each session creates fresh WebViews. Startup does not erase shared cookies or
+origin storage, which may also belong to merchant WebViews or another checkout.
+This is a deliberate divergence from the Flutter SDK, which clears WebView state
+at init as well as at teardown: on Android, `CookieManager` and `WebStorage` are
+process-wide with no per-WebView scope, so clearing at checkout start would erase
+the embedding app's own WebView sessions mid-use. A fresh `WebView` already starts
+with empty navigation and form state, and the SDK clears its own WebView state at
+teardown. Revisit only with a scoped-storage API or an explicit product decision
+that the SDK may clear app-wide state.
+File URL access and mixed content are disabled explicitly. Bank pages use the
+same forced viewport behavior as the Flutter Android flow; bank/device validation
+is required before release.
+
+A 15-second render timeout is advisory and offers Retry/Cancel. A later bridge
+handshake dismisses that surface; Retry starts a new timeout budget. Connection
+errors marked `shouldAutoClose` close checkout with `CONNECTION_ERROR`. Structured
+page dependency failures remain diagnostic events and do not draw native error UI.
 
 ## Testing
 

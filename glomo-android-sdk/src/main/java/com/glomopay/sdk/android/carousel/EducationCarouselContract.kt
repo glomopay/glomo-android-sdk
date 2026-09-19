@@ -5,6 +5,7 @@ import org.json.JSONObject
 internal enum class EducationCarouselState {
     PENDING,
     HAS_CONTENT,
+    NO_CONTENT,
 }
 
 internal data class EducationCarouselLayout(
@@ -25,8 +26,8 @@ internal object EducationCarouselContract {
     }.getOrNull()
 
     fun availabilitySignal(data: Map<String, Any?>): Boolean? {
-        if (data["type"]?.toString() != EVENT_NAME) return null
-        return true.takeIf { data["value"] == true }
+        if (data["event"] != EVENT_NAME) return null
+        return data["hasContent"] as? Boolean
     }
 
     fun layout(

@@ -17,11 +17,6 @@ import java.util.TimeZone
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
-internal data class AnalyticsEvent(
-    val name: String,
-    val properties: Map<String, Any?>,
-)
-
 internal const val MIXPANEL_TRACK_ENDPOINT = "https://api.mixpanel.com/track?ip=1"
 
 internal fun interface AnalyticsTransport {
@@ -83,7 +78,7 @@ internal class MixpanelAnalyticsTracker(
         put("subscription_id", config.subscriptionId)
         put("public_key", config.publicKey)
         put("checkout_url", checkoutUrl)
-        put("dev_mode", config.devMode)
+        put("dev_mode", com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD)
         put("mock_mode", ConfigManager.isTestOrMock(config.publicKey))
         put("time", now)
         put("timestamp", isoTimestamp(now))

@@ -23,6 +23,10 @@ android {
 
     defaultConfig {
         minSdk = 24
+        // Baked into the AAR by the SDK owner. Only exact "true" enables it.
+        buildConfigField("boolean", "GLOMO_INTERNAL_BUILD", providers.gradleProperty("GLOMO_INTERNAL_BUILD")
+            .orElse(providers.environmentVariable("GLOMO_INTERNAL_BUILD"))
+            .map { (it == "true").toString() }.orElse("false").get())
         consumerProguardFiles("consumer-rules.pro")
         resValue("string", "glomopay_sdk_version", project.version.toString())
         resValue("string", "glomopay_mixpanel_token", mixpanelToken.get())
@@ -42,6 +46,12 @@ android {
         buildConfig = true
     }
 
+}
+
+// Internal builds have distinct coordinates and cannot replace the merchant artifact.
+if (providers.gradleProperty("GLOMO_INTERNAL_BUILD")
+        .orElse(providers.environmentVariable("GLOMO_INTERNAL_BUILD")).orNull == "true") {
+    version = "$version-internal"
 }
 
 dependencies {

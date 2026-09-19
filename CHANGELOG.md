@@ -8,6 +8,58 @@ public API changes require a new major release.
 
 ## Unreleased
 
+### Breaking
+
+- `GlomoPayListener.onUserJourneyCompleted(GlomoPayUserJourneyPayload)` is a new **required**
+  callback with no default implementation, so every integration must add it. It is required on
+  purpose: the SDK cannot tell which merchants have bank transfers enabled - the order decides
+  that, server side - so a default body would let a host upgrade, keep compiling, and silently
+  stop hearing about a journey it used to be told about.
+- `payment.bank_transfer_submitted` no longer reaches `onPaymentSuccess`. Hosts that fulfil
+  orders from `onPaymentSuccess` were being told a payment had completed when no money had moved.
+- `GlomoPayConfig.devMode` and `GlomoPayCheckoutActivity.EXTRA_DEV_MODE` are removed, and
+  `startCheckout` now returns a `GlomoPayCheckoutHandle`.
+
+### Merchant readiness
+
+- Track monotonic checkout-open checkpoints and timeouts; add a recoverable 15-second render warning and honor connection-error auto-close.
+- Validate popup URLs, set explicit WebView security settings, and apply the Flutter Android bank viewport behavior.
+- End interrupted sessions on recreation instead of silently replaying checkout, and release session listeners at completion.
+- Return a session-specific checkout handle with programmatic close.
+- Replace the public devMode configuration with an SDK build-time GLOMO_INTERNAL_BUILD constant; internal builds have an `-internal` artifact version suffix.
+- Remove unused CheckoutStatus and CheckoutUrlBuilder; make GlomoPayResult internal. Deprecate diagnostic onEvent and namespace SDK-originated events.
+- Add localized error messages and Retry/Cancel controls to bank-flow errors.
+
+### Fixed
+
+- Preserve merchant cookies and the application's WebView debugging preference.
+- Close bank overlays on Back; handle predictive Back and allow dismissal during pending payments.
+- Install the bank opener bridge before page scripts where supported and align carousel messages with the checkout contract, including a delayed DOM fallback.
+- Block external schemes in bank flows and isolate merchant callback exceptions. Merchant exceptions are now reported by type and stack trace, never by message.
+- Fail order detection explicitly instead of guessing the checkout host; exclude API bodies from errors.
+- Accept any 2xx order response as the backend answering; a 2xx body the client cannot parse is reported as a malformed response rather than a status error.
+- Report order faults that the backend answered through `onSdkError` only. They no longer also deliver `onPaymentTerminate(CONNECTION_ERROR)`, which told hosts the network had failed.
+- Declare `configChanges` on the checkout Activity, so a dark-mode toggle, locale change, font-size change or multi-window resize no longer ends a live payment as an interrupted session. Only real process death reaches that path.
+- Deliver `onPaymentFailure` on the checkout's failure event instead of requiring a signature that a failure payload has never carried. The callback previously could not fire for a backend-confirmed decline in any release build. A payload with no `orderId` is still delivered and captured as `thin_payment_failure_payload`.
+- Route `payment.bank_transfer_submitted` to the new `onUserJourneyCompleted` with a `GlomoPayUserJourneyPayload`, instead of reporting it as a payment success with no `paymentId` and no `signature` for the host to verify. Journey fields are read coercively in both camelCase and snake_case, and a payload with no `orderId` is rejected but captured as `thin_bank_transfer_payload`.
+
+### Uploads
+
+- Add camera, gallery and file entry points, camera permission refusal handling, and JPEG camera output limited to 2048 pixels per side at quality 85. Picked documents are not read or size-limited.
+- Deliver the new `GlomoPayListener.onUserRefusedDevicePermissions` callback when the camera permission is refused, instead of reporting the user's choice as an SDK error. It has a default implementation, so existing integrations keep compiling.
+- Open the photo picker on API 33+ for the Gallery entry point and fall back to the documents picker where it is unavailable, replacing a wildcard `ACTION_PICK` that several OEM galleries do not handle.
+
+### Documented decisions
+
+- WebView state is cleared at teardown only, not at checkout start: on Android `CookieManager`
+  and `WebStorage` are process-wide, so clearing at start would erase the embedding app's own
+  WebView sessions. This is a deliberate divergence from the Flutter SDK.
+- The merchant listener is held strongly for the lifetime of one checkout and released on every
+  terminal path. A weak reference was rejected because hosts commonly pass an inline listener
+  that nothing else retains, which would silently drop the payment result.
+- Bank-page viewport forcing and predictive-back gestures need real bank/device evidence before
+  signoff; see `docs/bank-flow-device-validation.md`.
+
 ### Added
 
 - Added automatic LRS education carousel support above the secure bank flow,

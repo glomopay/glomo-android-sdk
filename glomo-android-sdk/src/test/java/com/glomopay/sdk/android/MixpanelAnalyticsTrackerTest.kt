@@ -22,7 +22,6 @@ class MixpanelAnalyticsTrackerTest {
             config = GlomoPayConfig(
                 publicKey = "test_public_key",
                 orderId = "order_123",
-                devMode = true,
             ),
             sessionId = "session-uuid",
             sdkVersion = "1.0.0",
@@ -37,6 +36,7 @@ class MixpanelAnalyticsTrackerTest {
                 "\$wifi_enabled" to true,
                 "\$cellular_enabled" to false,
                 "\$app_namespace" to "com.example.merchant",
+                "merchant_target_sdk_version" to 36,
             ) },
         )
 
@@ -51,8 +51,10 @@ class MixpanelAnalyticsTrackerTest {
         assertEquals("Pixel 8", properties["\$model"])
         assertEquals(true, properties["\$wifi_enabled"])
         assertEquals(false, properties["\$cellular_enabled"])
+        assertEquals(36, properties["merchant_target_sdk_version"])
         assertEquals("lrs", properties["flow_type"])
         assertEquals(true, properties["mock_mode"])
+        assertEquals(BuildConfig.GLOMO_INTERNAL_BUILD, properties["dev_mode"])
         assertEquals("android-sdk", properties["surface"])
         assertEquals(1_723_620_000_000L, properties["time"])
         assertEquals("2024-08-14T12:50:00.000+05:30", properties["timestamp"])
