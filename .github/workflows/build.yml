@@ -25,7 +25,9 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      # v4 runs on Node 24. GitHub now forces Node 24, which makes v3 fail
+      # before Gradle starts on the RunsOn image.
+      - uses: android-actions/setup-android@v4
       - name: Build, API check and test
         run: |
           chmod +x gradlew
