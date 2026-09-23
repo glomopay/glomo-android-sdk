@@ -55,6 +55,14 @@ class GlomoPayApiClientTest {
     }
 
     @Test
+    fun http_status_fault_is_an_sdk_error_not_a_connectivity_error() {
+        val error = GlomoPayHttpStatusError(503).toSdkError()
+
+        assertEquals(SdkErrorType.UNKNOWN, error.type)
+        assertEquals("Failed to load order. Status: 503", error.message)
+    }
+
+    @Test
     fun mapOrderFetchResponse_reports_malformed_success_body() {
         val error = assertFailsWith<GlomoPayMalformedResponse> {
             client.mapOrderFetchResponse(status = 200, body = "{not-json")

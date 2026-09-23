@@ -76,9 +76,11 @@ public class GlomoPayApiClient public constructor(
     }
 
     internal companion object {
-        const val CONNECT_TIMEOUT_MS = 15_000
-        const val READ_TIMEOUT_MS = 15_000
-        val SUCCESS_STATUS = 200..299
+        private const val CONNECT_TIMEOUT_MS = 15_000
+        private const val READ_TIMEOUT_MS = 15_000
+        internal val totalRequestTimeoutMs: Long
+            get() = CONNECT_TIMEOUT_MS.toLong() + READ_TIMEOUT_MS
+        private val SUCCESS_STATUS = 200..299
     }
 }
 
@@ -98,5 +100,10 @@ internal class GlomoPayTransportError(
 internal class GlomoPayHttpStatusError(
     val statusCode: Int,
 ) : GlomoPayOrderFetchException("Failed to load order. Status: $statusCode")
+
+internal fun GlomoPayHttpStatusError.toSdkError(): SdkError = SdkError(
+    type = SdkErrorType.UNKNOWN,
+    message = "Failed to load order. Status: $statusCode",
+)
 
 internal class GlomoPayMalformedResponse : GlomoPayOrderFetchException("Malformed order response.")

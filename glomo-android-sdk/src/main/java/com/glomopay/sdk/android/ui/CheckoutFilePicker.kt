@@ -180,7 +180,7 @@ internal class CheckoutFilePicker(
         BitmapFactory.decodeFile(file.path, bounds)
         require(bounds.outWidth > 0 && bounds.outHeight > 0)
         var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 4096) sample *= 2
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_DECODE_DIMENSION) sample *= 2
         val bitmap = requireNotNull(BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }))
         val orientation = ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         val matrix = Matrix().apply {
@@ -193,12 +193,12 @@ internal class CheckoutFilePicker(
                 7 -> { setRotate(-90f); postScale(-1f, 1f) }
                 8 -> setRotate(-90f)
             }
-            val scale = minOf(1f, 2048f / maxOf(bitmap.width, bitmap.height))
+            val scale = minOf(1f, MAX_OUTPUT_DIMENSION.toFloat() / maxOf(bitmap.width, bitmap.height))
             postScale(scale, scale)
         }
         val resized = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         try {
-            file.outputStream().use { check(resized.compress(Bitmap.CompressFormat.JPEG, 85, it)) }
+            file.outputStream().use { check(resized.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it)) }
         } finally {
             if (resized !== bitmap) resized.recycle()
             bitmap.recycle()
@@ -244,6 +244,10 @@ internal class CheckoutFilePicker(
     companion object {
         const val REQUEST_PICKER = 4101
         const val PERMISSION_CAMERA = 4102
+        // Bank upload limits drove these values. Do not increase them without
+        // reconfirming accepted dimensions and payload size with supported banks.
+        private const val MAX_DECODE_DIMENSION = 4096
+        private const val MAX_OUTPUT_DIMENSION = 2048
+        private const val JPEG_QUALITY = 85
     }
 }
-

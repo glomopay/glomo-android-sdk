@@ -23,6 +23,9 @@ android {
 
     defaultConfig {
         minSdk = 24
+        aarMetadata {
+            minCompileSdk = 35
+        }
         // Baked into the AAR by the SDK owner. Only exact "true" enables it.
         buildConfigField("boolean", "GLOMO_INTERNAL_BUILD", providers.gradleProperty("GLOMO_INTERNAL_BUILD")
             .orElse(providers.environmentVariable("GLOMO_INTERNAL_BUILD"))
@@ -46,6 +49,21 @@ android {
         buildConfig = true
     }
 
+}
+
+val bridgeContractTest by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Runs the JavaScript bridge contract against the scripts embedded in Kotlin."
+    workingDir(rootProject.projectDir)
+    commandLine("node", file("src/test/js/bridge-contract.cjs").absolutePath)
+    inputs.files(
+        file("src/test/js/bridge-contract.cjs"),
+        file("src/main/java/com/glomopay/sdk/android/bridge/GlomoPayInjectionScripts.kt"),
+    )
+}
+
+tasks.named("check") {
+    dependsOn(bridgeContractTest)
 }
 
 // Internal builds have distinct coordinates and cannot replace the merchant artifact.

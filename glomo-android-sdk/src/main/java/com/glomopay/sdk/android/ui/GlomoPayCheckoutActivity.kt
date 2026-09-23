@@ -29,6 +29,7 @@ import com.glomopay.sdk.android.GlomoPayHttpStatusError
 import com.glomopay.sdk.android.GlomoPayMalformedResponse
 import com.glomopay.sdk.android.GlomoPayRequestTimeout
 import com.glomopay.sdk.android.GlomoPayTransportError
+import com.glomopay.sdk.android.toSdkError
 import com.glomopay.sdk.android.R
 import com.glomopay.sdk.android.CheckoutSessionRegistry
 import com.glomopay.sdk.android.SdkError
@@ -165,7 +166,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         val compliance = DeviceComplianceChecker.check(this, strictCompliance)
         analytics.track(
             AnalyticsEvents.DEVICE_COMPLIANCE_CHECKED,
-            complianceAnalyticsProperties(com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD, compliance),
+            complianceAnalyticsProperties(compliance),
         )
         if (!compliance.isCompliant) {
             analytics.track(AnalyticsEvents.DEVICE_COMPLIANCE_BLOCKED, mapOf("block_reason" to "root_detected"))
@@ -192,6 +193,8 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun buildContentView() {
+        val supportsDocumentStartInjection =
+            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
         webView = CheckoutWebViewFactory.create(this).apply {
             webViewClient = CheckoutWebViewClient(
                 onPageStartedCallback = { url ->
@@ -200,13 +203,14 @@ public class GlomoPayCheckoutActivity : Activity() {
                     analytics.track(AnalyticsEvents.NAVIGATION_STARTED, navigationProperties(url))
                     mainErrorPanel?.visibility = View.GONE
                     updateState(CheckoutUiState.Loading)
+                    if (!supportsDocumentStartInjection) evaluateInjection()
                 },
                 onPageFinishedCallback = { url ->
                     currentUrl = url
                     advanceOpenStep(com.glomopay.sdk.android.state.CheckoutOpenStep.NAVIGATION_FINISHED)
                     analytics.track(AnalyticsEvents.NAVIGATION_FINISHED, navigationProperties(url))
                     updateState(CheckoutUiState.Content)
-                    evaluateInjection()
+                    if (!supportsDocumentStartInjection) evaluateInjection()
                 },
                 onUrlChangedCallback = { url ->
                     currentUrl = url
@@ -220,6 +224,13 @@ public class GlomoPayCheckoutActivity : Activity() {
             addJavascriptInterface(GlomoPayJavaScriptBridge { raw ->
                 runOnUiThread { eventRouter.handle(raw) }
             }, "GlomoPayBridge")
+            if (supportsDocumentStartInjection) {
+                WebViewCompat.addDocumentStartJavaScript(
+                    this,
+                    mainInjectionScript(),
+                    setOf("*"),
+                )
+            }
         }
 
         rootView = FrameLayout(this)
@@ -334,11 +345,7 @@ public class GlomoPayCheckoutActivity : Activity() {
                 failCheckoutForConnectionError(connectionError)
             }
             is GlomoPayHttpStatusError -> {
-                val sdkError = SdkError(
-                    type = SdkErrorType.NETWORK_ERROR,
-                    message = "Failed to load order. Status: ${error.statusCode}",
-                )
-                failCheckoutForSdkError(sdkError)
+                failCheckoutForSdkError(error.toSdkError())
             }
             is GlomoPayMalformedResponse -> {
                 val sdkError = SdkError(
@@ -412,10 +419,6 @@ public class GlomoPayCheckoutActivity : Activity() {
             CheckoutUiState.Content -> {
                 loadingLabel.visibility = View.GONE
             }
-            is CheckoutUiState.Error -> {
-                loadingLabel.text = state.connectionError.message
-                loadingLabel.visibility = View.VISIBLE
-            }
         }
     }
 
@@ -458,12 +461,20 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun advanceOpenStep(step: com.glomopay.sdk.android.state.CheckoutOpenStep) {
-        if (openFunnel.advance(step)) analytics.track(step.event, mapOf("step" to step.value))
+        if (!openFunnel.advance(step)) return
+        val event = when (step) {
+            com.glomopay.sdk.android.state.CheckoutOpenStep.WEB_VIEW_CREATED -> AnalyticsEvents.CHECKOUT_WEBVIEW_CREATED
+            com.glomopay.sdk.android.state.CheckoutOpenStep.URL_RESOLVED -> AnalyticsEvents.CHECKOUT_URL_RESOLVED
+            com.glomopay.sdk.android.state.CheckoutOpenStep.NAVIGATION_STARTED -> AnalyticsEvents.CHECKOUT_NAVIGATION_STARTED
+            com.glomopay.sdk.android.state.CheckoutOpenStep.NAVIGATION_FINISHED -> AnalyticsEvents.CHECKOUT_NAVIGATION_FINISHED
+            com.glomopay.sdk.android.state.CheckoutOpenStep.BRIDGE_READY -> AnalyticsEvents.CHECKOUT_BRIDGE_READY
+        }
+        analytics.track(event, mapOf("step" to step.value))
     }
 
     private fun startOpenWatchdog() {
         openStartedAt = android.os.SystemClock.elapsedRealtime()
-        analytics.track("Checkout WebView Created", mapOf("step" to "webview_created"))
+        analytics.track(AnalyticsEvents.CHECKOUT_WEBVIEW_CREATED, mapOf("step" to "webview_created"))
         openTimeout?.cancel()
         openTimeout = checkoutScope.launch {
             kotlinx.coroutines.delay(OPEN_TIMEOUT_MS)
@@ -473,7 +484,7 @@ public class GlomoPayCheckoutActivity : Activity() {
 
     private fun reportOpenTimeout(reason: String, threshold: Long) {
         val lastStep = openFunnel.timeout() ?: return
-        analytics.track("Checkout Open Timeout", mapOf(
+        analytics.track(AnalyticsEvents.CHECKOUT_OPEN_TIMEOUT, mapOf(
             "last_step" to lastStep, "elapsed_ms" to (android.os.SystemClock.elapsedRealtime() - openStartedAt),
             "timeout_ms" to threshold, "reason" to reason,
         ))
@@ -500,9 +511,12 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun evaluateInjection() {
-        webView.evaluateJavascript("window.__glomoDevMode__ = ${com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD};", null)
-        webView.evaluateJavascript(GlomoPayInjectionScripts.main(), null)
+        webView.evaluateJavascript(mainInjectionScript(), null)
     }
+
+    private fun mainInjectionScript(): String =
+        "window.__glomoDevMode__ = ${com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD};" +
+            GlomoPayInjectionScripts.main()
 
     private fun prepareEducationCarousel(orderType: String) {
         destroyEducationCarousel()
@@ -973,8 +987,8 @@ public class GlomoPayCheckoutActivity : Activity() {
         public const val EXTRA_SESSION_ID: String = "com.glomopay.sdk.android.SESSION_ID"
         private val SUPPORTED_ORDER_TYPES = setOf("auto", "standard", "lrs")
         private const val RENDER_TIMEOUT_MS = 15_000L
-        private const val OPEN_TIMEOUT_MS = GlomoPayApiClient.CONNECT_TIMEOUT_MS +
-            GlomoPayApiClient.READ_TIMEOUT_MS + RENDER_TIMEOUT_MS + 5_000L
+        private val OPEN_TIMEOUT_MS =
+            GlomoPayApiClient.totalRequestTimeoutMs + RENDER_TIMEOUT_MS + 5_000L
 
         public fun createIntent(
             context: Context,

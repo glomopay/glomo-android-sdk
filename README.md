@@ -27,6 +27,7 @@ current implementation detail. See [CONTRIBUTING.md](CONTRIBUTING.md).
 |---|---|
 | Minimum Android version | Android 7.0 / API 24 |
 | Compile SDK | 35 |
+| Tested merchant `targetSdk` range | 34–36 |
 | Kotlin | 2.0.21 or compatible |
 | Java/JVM target | 17 |
 | Kotlin/Java package | `com.glomopay.sdk.android` |
@@ -42,6 +43,19 @@ tooling comfortable, and matches the modern React Native ecosystem floor.
 Merchants currently using `minSdk 21` must raise their application's minimum SDK
 before adopting this library. Coordinate that change with
 `developer@glomopay.com` before planning the integration.
+
+The merchant application's `targetSdk` is separate from the library's `minSdk`.
+The supported test range is 34–36: 34 is the pre edge-to-edge control, while 35
+and 36 cover current platform behavior. The AAR declares `minCompileSdk 35`.
+Predictive Back uses Android's runtime callback on API 33+ and the legacy callback
+below it; the target range is therefore a release test policy rather than a code
+branch. The sample app defaults to 36 and can be built for each supported target:
+
+```bash
+./gradlew :sample-app:assembleDebug -PMERCHANT_TARGET_SDK=34
+./gradlew :sample-app:assembleDebug -PMERCHANT_TARGET_SDK=35
+./gradlew :sample-app:assembleDebug -PMERCHANT_TARGET_SDK=36
+```
 
 ## Installation
 
@@ -182,9 +196,10 @@ This is a deliberate divergence from the Flutter SDK, which clears WebView state
 at init as well as at teardown: on Android, `CookieManager` and `WebStorage` are
 process-wide with no per-WebView scope, so clearing at checkout start would erase
 the embedding app's own WebView sessions mid-use. A fresh `WebView` already starts
-with empty navigation and form state, and the SDK clears its own WebView state at
-teardown. Revisit only with a scoped-storage API or an explicit product decision
-that the SDK may clear app-wide state.
+with empty navigation and form state. At teardown, the SDK clears WebView-local
+history, form data and SSL preferences. It deliberately does not clear the
+process-wide resource cache. Revisit only with a scoped-storage API or an explicit
+product decision that the SDK may clear app-wide state.
 File URL access and mixed content are disabled explicitly. Bank pages use the
 same forced viewport behavior as the Flutter Android flow; bank/device validation
 is required before release.

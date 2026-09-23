@@ -31,12 +31,12 @@ internal object CheckoutWebViewFactory {
     }
 
     fun clearSession(webView: WebView) {
-        webView.clearCache(true)
         webView.clearHistory()
         webView.clearFormData()
         webView.clearSslPreferences()
         webView.loadUrl("about:blank")
-        // CookieManager is process-wide; clearing it would erase merchant/bank sessions.
-        // Android has no per-WebView cookie clearing API.
+        // CookieManager and WebView's disk cache are process-wide; clearing either
+        // would erase or evict merchant/bank state outside this checkout. Android
+        // exposes no per-WebView cookie or resource-cache clearing API.
     }
 }

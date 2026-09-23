@@ -30,7 +30,7 @@ What to watch on each run:
 
 The Activity registers an `OnBackInvokedCallback` on API 33+ and keeps
 `onBackPressed()` for older releases. This must be exercised as a *gesture*, not
-as a button press, on a `targetSdk 35+` host app.
+as a button press, across the supported merchant `targetSdk` range (34–36).
 
 What to watch:
 
@@ -40,20 +40,25 @@ What to watch:
 - During a pending payment: back still works (the old `paymentInProgress` lock is gone).
 - Two gestures are needed to leave from inside the overlay - that is intended.
 
-## Matrix to fill
+## Matrix to fill before release
 
 Run each row to a completed or explicitly declined payment. Attach this table to
-the signoff.
+the signoff. A blank row means **pending**, never passed.
 
-| Bank | Order type | Device / OS | Host targetSdk | Viewport OK | Keyboard OK | Multi-step OK | Predictive back OK | Notes |
-|---|---|---|---|---|---|---|---|---|
-| | standard | | 35 | | | | | |
-| | standard | | 36 | | | | | |
-| | lrs | | 35 | | | | | |
-| | lrs | | 36 | | | | | |
+| Bank | Order type | Device / OS | Host targetSdk | Viewport OK | Keyboard OK | Multi-step OK | Predictive back OK | Rotation keeps checkout | Evidence / notes |
+|---|---|---|---|---|---|---|---|---|---|
+| | standard | | 34 | | | | | | |
+| | standard | | 35 | | | | | | |
+| | standard | | 36 | | | | | | |
+| | lrs | | 34 | | | | | | |
+| | lrs | | 35 | | | | | | |
+| | lrs | | 36 | | | | | | |
+| | standard | large-screen / Android 16+ | 36 | | | | | | |
 
 Minimum coverage: at least 3 different banks, at least one Android 13 (API 33)
-device and one Android 15+ device, and at least one run on a `targetSdk 36` host.
+device and one Android 15+ device. Cover targetSdk 34, 35 and 36, and include one
+large-screen Android 16+ rotation run because the system may ignore the portrait
+request there. Build the in-repo sample host with `-PMERCHANT_TARGET_SDK=<34|35|36>`.
 
 ## Prerequisite
 

@@ -10,7 +10,8 @@ android {
     defaultConfig {
         applicationId = "com.glomopay.sdk.android.sampleApp"
         minSdk = 24
-        targetSdk = 36
+        // Override with -PMERCHANT_TARGET_SDK=34, 35 or 36 for the support matrix.
+        targetSdk = providers.gradleProperty("MERCHANT_TARGET_SDK").orElse("36").get().toInt()
         versionCode = 1
         versionName = "1.0.0"
     }

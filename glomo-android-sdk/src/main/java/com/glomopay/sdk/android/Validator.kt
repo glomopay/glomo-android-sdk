@@ -32,5 +32,4 @@ public object Validator {
             !payload.paymentId.isNullOrEmpty() &&
             !payload.signature.isNullOrEmpty()
 
-    public fun isValidBankTransferPayload(payload: GlomoPayPayload): Boolean = payload.orderId.isNotEmpty()
 }

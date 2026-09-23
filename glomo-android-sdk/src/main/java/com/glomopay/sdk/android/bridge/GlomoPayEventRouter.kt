@@ -23,7 +23,6 @@ internal class GlomoPayEventRouter(
     private val onComplete: (GlomoPayResult) -> Unit,
     private val onWindowOpen: (String) -> Unit = {},
     private val onWindowClose: () -> Unit = {},
-    private val onPaymentPending: () -> Unit = {},
     private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
     private val errorReporter: SdkErrorReporter = NoOpSdkErrorReporter,
     private val onBridgeReady: () -> Unit = {},
@@ -185,7 +184,6 @@ internal class GlomoPayEventRouter(
             "payment.pending", "pending" -> {
                 val payload = GlomoPayPayload.fromMap(payloadData)
                 analytics.track(AnalyticsEvents.PAYMENT_PENDING, mapOf("payment_id" to payload.paymentId))
-                onPaymentPending()
             }
             "payment.cancelled", "cancelled" -> {
                 analytics.track(AnalyticsEvents.PAYMENT_CANCELLED)

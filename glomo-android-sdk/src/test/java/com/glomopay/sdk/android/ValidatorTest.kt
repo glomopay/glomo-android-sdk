@@ -52,9 +52,4 @@ class ValidatorTest {
         assertFalse(Validator.isValidPaymentPayload(valid.copy(orderId = "")))
     }
 
-    @Test
-    fun bank_transfer_requires_only_order_id() {
-        assertTrue(Validator.isValidBankTransferPayload(GlomoPayPayload("order_1")))
-        assertFalse(Validator.isValidBankTransferPayload(GlomoPayPayload("")))
-    }
 }

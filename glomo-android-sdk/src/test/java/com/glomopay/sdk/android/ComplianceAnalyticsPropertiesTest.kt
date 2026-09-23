@@ -8,8 +8,8 @@ import kotlin.test.assertTrue
 
 class ComplianceAnalyticsPropertiesTest {
     @Test
-    fun internal_mode_preserves_observed_compliance_signals() {
-        val properties = complianceAnalyticsProperties(devMode = true, result = result())
+    fun compliance_properties_preserve_observed_signals() {
+        val properties = complianceAnalyticsProperties(result())
         assertEquals(false, properties["is_compliant"])
         assertEquals(true, properties["is_jailbroken"])
         assertEquals(false, properties["checks_skipped"])
@@ -17,8 +17,8 @@ class ComplianceAnalyticsPropertiesTest {
     }
 
     @Test
-    fun strict_mode_sends_android_compliance_signals() {
-        val properties = complianceAnalyticsProperties(devMode = false, result = result())
+    fun compliance_properties_include_android_signals() {
+        val properties = complianceAnalyticsProperties(result())
 
         assertEquals(false, properties["is_compliant"])
         assertEquals(true, properties["is_jailbroken"])

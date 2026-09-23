@@ -213,7 +213,6 @@ public final class com/glomopay/sdk/android/TerminationSource : java/lang/Enum {
 
 public final class com/glomopay/sdk/android/Validator {
 	public static final field INSTANCE Lcom/glomopay/sdk/android/Validator;
-	public final fun isValidBankTransferPayload (Lcom/glomopay/sdk/android/GlomoPayPayload;)Z
 	public final fun isValidOrderId (Ljava/lang/String;)Z
 	public final fun isValidPaymentPayload (Lcom/glomopay/sdk/android/GlomoPayPayload;)Z
 	public final fun isValidPublicKey (Ljava/lang/String;)Z
@@ -251,17 +250,6 @@ public abstract interface class com/glomopay/sdk/android/state/CheckoutUiState {
 public final class com/glomopay/sdk/android/state/CheckoutUiState$Content : com/glomopay/sdk/android/state/CheckoutUiState {
 	public static final field INSTANCE Lcom/glomopay/sdk/android/state/CheckoutUiState$Content;
 	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class com/glomopay/sdk/android/state/CheckoutUiState$Error : com/glomopay/sdk/android/state/CheckoutUiState {
-	public fun <init> (Lcom/glomopay/sdk/android/ConnectionError;)V
-	public final fun component1 ()Lcom/glomopay/sdk/android/ConnectionError;
-	public final fun copy (Lcom/glomopay/sdk/android/ConnectionError;)Lcom/glomopay/sdk/android/state/CheckoutUiState$Error;
-	public static synthetic fun copy$default (Lcom/glomopay/sdk/android/state/CheckoutUiState$Error;Lcom/glomopay/sdk/android/ConnectionError;ILjava/lang/Object;)Lcom/glomopay/sdk/android/state/CheckoutUiState$Error;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getConnectionError ()Lcom/glomopay/sdk/android/ConnectionError;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

@@ -15,7 +15,9 @@
             cannot resume a payment, so onCreate ends the session when it is handed a
             saved state. Without these, a dark-mode toggle, locale change, font-size
             change or multi-window resize would kill a live payment. Only real process
-            death now reaches that path.
+            death now reaches that path. Android 16 may ignore portrait requests on
+            large screens; orientation and screen-size handling below keeps that
+            rotation in-process so the checkout is not reloaded mid-payment.
         -->
         <activity
             android:name=".ui.GlomoPayCheckoutActivity"

@@ -177,19 +177,19 @@ class GlomoPayEventRouterTest {
     }
 
     @Test
-    fun pending_event_updates_payment_state_without_finishing_checkout() {
-        var pending = 0
+    fun pending_event_is_observed_without_finishing_checkout() {
+        val analytics = RecordingAnalytics()
         var completed = 0
         val router = GlomoPayEventRouter(
             listener = RecordingListener(),
             devMode = false,
             onComplete = { completed++ },
-            onPaymentPending = { pending++ },
+            analytics = analytics,
         )
 
         router.handleEnvelope(mapOf("type" to "message", "data" to mapOf("type" to "payment.pending")))
 
-        assertEquals(1, pending)
+        assertEquals(AnalyticsEvents.PAYMENT_PENDING, analytics.events.single().name)
         assertEquals(0, completed)
     }
 

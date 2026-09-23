@@ -2,10 +2,7 @@ package com.glomopay.sdk.android.analytics
 
 import com.glomopay.sdk.android.security.DeviceComplianceResult
 
-internal fun complianceAnalyticsProperties(
-    @Suppress("UNUSED_PARAMETER") devMode: Boolean,
-    result: DeviceComplianceResult,
-): Map<String, Any?> {
+internal fun complianceAnalyticsProperties(result: DeviceComplianceResult): Map<String, Any?> {
     val skipped = result.checksSkipped
     return mapOf(
         "is_compliant" to result.isCompliant.takeUnless { skipped },

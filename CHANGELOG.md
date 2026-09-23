@@ -32,7 +32,11 @@ public API changes require a new major release.
 
 ### Fixed
 
-- Preserve merchant cookies and the application's WebView debugging preference.
+- Preserve merchant cookies, the process-wide WebView resource cache, and the
+  application's WebView debugging preference.
+- Install the main checkout bridge at document start where Android WebView supports
+  it, with page-start/page-finish fallback for older implementations.
+- Report order HTTP status failures as SDK errors rather than connectivity errors.
 - Close bank overlays on Back; handle predictive Back and allow dismissal during pending payments.
 - Install the bank opener bridge before page scripts where supported and align carousel messages with the checkout contract, including a delayed DOM fallback.
 - Block external schemes in bank flows and isolate merchant callback exceptions. Merchant exceptions are now reported by type and stack trace, never by message.
@@ -59,6 +63,14 @@ public API changes require a new major release.
   that nothing else retains, which would silently drop the payment result.
 - Bank-page viewport forcing and predictive-back gestures need real bank/device evidence before
   signoff; see `docs/bank-flow-device-validation.md`.
+- Support and test merchant applications targeting SDK 34–36. The sample host can
+  build each target from a Gradle property, and the AAR declares `minCompileSdk 35`.
+
+### Build and verification
+
+- Run the JavaScript bridge contract from Gradle `check` and Android CI.
+- Remove the unused public `Validator.isValidBankTransferPayload` and
+  `CheckoutUiState.Error` APIs, then regenerate the public API dump.
 
 ### Added
 
