@@ -238,8 +238,9 @@ project through a small, dependency-free client for Sentry's HTTP envelope
 endpoint. The SDK does not depend on any Sentry artifact, so it cannot conflict
 with or alter the merchant app's own Sentry setup. It installs no crash, ANR,
 NDK, session or tracing hooks; only explicitly captured SDK errors are
-reported. Events carry no user identifiers, but Sentry records the device's
-public IP address and an IP-derived country and city for each event.
+reported. Events carry no user identifiers and no IP address; Sentry derives
+an approximate location (country, region, city) at ingest but does not store
+the device IP.
 
 ## ProGuard and R8
 

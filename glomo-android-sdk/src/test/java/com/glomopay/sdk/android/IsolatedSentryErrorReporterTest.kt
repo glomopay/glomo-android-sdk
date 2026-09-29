@@ -96,20 +96,18 @@ class IsolatedSentryErrorReporterTest {
     }
 
     @Test
-    fun relay_is_told_to_infer_the_ip_and_no_user_fields_are_sent() {
+    fun no_ip_inference_setting_and_no_user_object_is_sent() {
         reporter().capture("mixpanel_delivery", IllegalStateException("boom"))
 
         val request = server.takeRequest()
-        val sdk = request.event.getJSONObject("sdk")
+        // Exactly name and version: no sdk.settings, so no infer_ip in either direction.
         assertEquals(
             mapOf<String, Any?>("name" to "glomo-android-sdk", "version" to "1.2.3"),
-            (sdk.keySet() - "settings").associateWith { sdk.get(it) },
+            request.event.getJSONObject("sdk").toMap(),
         )
-        assertEquals(mapOf<String, Any?>("infer_ip" to "auto"), sdk.getJSONObject("settings").toMap())
-        // Inference needs no user object, so none is sent: no id, email, username or name.
         assertFalse(request.event.has("user"))
         val wire = String(request.body, Charsets.UTF_8)
-        listOf("\"user\"", "\"email\"", "\"username\"", "ip_address").forEach {
+        listOf("infer_ip", "\"user\"", "\"email\"", "\"username\"", "ip_address", "{{auto}}").forEach {
             assertFalse(wire.contains(it), "<$it> reached the wire")
         }
     }
@@ -524,9 +522,10 @@ class IsolatedSentryErrorReporterTest {
 
     /**
      * Opt-in delivery to a real Sentry project. Skipped unless GLOMO_SENTRY_LIVE_DSN is set. The
-     * event is marked as test traffic (operation, tag, message, fake session and release) so it can
-     * be found and resolved. Run it with a single variant task, e.g. testDebugUnitTest, or it sends
-     * once per variant.
+     * event is marked as test traffic (operation, tag, message, fake session, order and release) so
+     * it can be found and resolved. Two drops are forced locally first, through a one-second rate
+     * limit window, so the live event carries `dropped_since_last_send`; nothing extra reaches
+     * Sentry. Run it with a single variant task, e.g. testDebugUnitTest, or it sends once per variant.
      */
     @Test
     fun live_delivery_to_a_real_sentry_project() {
@@ -545,6 +544,7 @@ class IsolatedSentryErrorReporterTest {
             sessionId = "delivery-test-$sentAt",
             initialFlowType = "auto",
             devMode = true,
+            orderId = "order_delivery_test_$sentAt",
             contexts = SentryContexts.fromBuild(appVersion = null, appBuild = null),
         ).capture("delivery_test", IllegalStateException("delivery test"))
         val event = server.takeRequest().event
@@ -552,14 +552,29 @@ class IsolatedSentryErrorReporterTest {
         event.put("message", JSONObject().put("formatted", "GlomoPay SDK delivery test - safe to resolve"))
         val eventId = event.getString("event_id")
 
-        val delivery = SentryEnvelopeClient(dsn, "glomo-android-sdk/$version", executor = Executor(Runnable::run))
-            .deliver(SentryEnvelope.event(eventId, event, dsn, sentAt))
+        var limiterNow = sentAt
+        val limiter = SentryRateLimiter { limiterNow }
+        limiter.update(429) { name -> if (name.equals("Retry-After", ignoreCase = true)) "1" else null }
+        val live = SentryEnvelopeClient(
+            dsn = dsn,
+            clientName = "glomo-android-sdk/$version",
+            executor = Executor(Runnable::run),
+            rateLimiter = limiter,
+        )
+        repeat(2) { live.send("f".repeat(32), JSONObject()) }
+        limiterNow += 2_000
+
+        val delivery = live.deliverEvent(eventId, event)
 
         val ist = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'IST'", java.util.Locale.US)
             .apply { timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata") }
             .format(java.util.Date(sentAt))
-        println("delivery_test event_id=$eventId status=${delivery.statusCode} sent_at=$ist")
+        println(
+            "delivery_test event_id=$eventId status=${delivery.statusCode} sent_at=$ist " +
+                "dropped_since_last_send=${event.getJSONObject("extra").opt("dropped_since_last_send")}",
+        )
         assertEquals(200, delivery.statusCode)
+        assertEquals(2, event.getJSONObject("extra").getInt("dropped_since_last_send"))
         assertEquals(SentrySendResult.SENT, delivery.result)
         assertEquals(eventId, JSONObject(delivery.responseBody.orEmpty()).getString("id"))
     }

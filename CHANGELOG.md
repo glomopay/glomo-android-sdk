@@ -40,10 +40,9 @@ public API changes require a new major release.
   API level; device manufacturer, brand and model; host app version name and code. These are
   already sent to Mixpanel; no new data category. No device identifiers, locale, timezone,
   battery, memory or screen data.
-- SDK error events ask Sentry to infer the sender's IP (`sdk.settings.infer_ip: auto`): Sentry
-  stores the device's public IP as it sees it (`user.ip_address`) and an IP-derived country/city
-  (`user.geo`). The SDK sends no user id, email, username or name. Mixpanel analytics already
-  receive the same IP (`?ip=1`) for geolocation.
+- SDK error events send no IP address and no user object (no id, email, username or name). Sentry
+  derives an approximate location (country, region, city) from the connection at ingest; the
+  device IP itself is not stored.
 - SDK error events are tagged with the checkout's `order_id` (from `GlomoPayConfig.orderId`, when
   set) as a join key to backend logs.
 - SDK error envelopes are sent gzip-compressed. Events dropped by a rate limit, a full queue or a
