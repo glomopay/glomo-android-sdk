@@ -2,7 +2,6 @@ package com.glomopay.sdk.android.monitoring
 
 import android.content.Context
 import com.glomopay.sdk.android.GlomoPayConfig
-import com.glomopay.sdk.android.R
 import com.glomopay.sdk.android.analytics.AnalyticsSanitizer
 import com.glomopay.sdk.android.analytics.GlomoPayLogger
 import org.json.JSONArray
@@ -16,8 +15,9 @@ import java.util.concurrent.ConcurrentHashMap
  * endpoint, with no Sentry SDK on the classpath.
  *
  * Events are built from an allowlist: the fields below are the only ones ever sent. There is no
- * user object (Sentry records the connection IP at ingest, see [sdk]), request, server name, module list, thread dump or debug-meta, device/OS context is limited
- * to [SentryContexts], and the original exception message and cause chain never leave the device.
+ * user object (Sentry records the connection IP at ingest, see [sdk]), request, server name,
+ * module list, thread dump or debug-meta, device/OS context is limited to [SentryContexts], and
+ * the original exception message and cause chain never leave the device.
  */
 internal class IsolatedSentryErrorReporter(
     private val client: SentryEnvelopeClient,
@@ -25,11 +25,16 @@ internal class IsolatedSentryErrorReporter(
     private val sessionId: String,
     initialFlowType: String,
     private val devMode: Boolean,
+    orderId: String? = null,
     private val contexts: SentryContexts = SentryContexts(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) : SdkErrorReporter {
     private val breadcrumbs = ArrayDeque<JSONObject>()
     @Volatile private var flowType = initialFlowType
+
+    // A server-issued `order_` id, sent unredacted: it is the join key to backend logs, and the
+    // sanitiser's digit redaction would break it. Sentry caps tag values at 200 characters.
+    private val orderIdTag = orderId?.trim()?.takeIf { it.isNotEmpty() }?.take(200)
 
     override fun updateFlowType(flowType: String) {
         this.flowType = flowType
@@ -71,6 +76,7 @@ internal class IsolatedSentryErrorReporter(
             .put("flow_type", currentFlowType)
             .put("sdk_session_id", sessionId)
             .put("dev_mode", devMode.toString())
+            .apply { orderIdTag?.let { put("order_id", it) } }
         val extra = sanitizeContext(context).put("session_id", sessionId)
         val crumbs = synchronized(breadcrumbs) { JSONArray(breadcrumbs.toList()) }
 
@@ -165,38 +171,30 @@ internal object SdkErrorReporterFactory {
         config: GlomoPayConfig,
         sessionId: String,
         flowType: String,
-    ): SdkErrorReporter = runCatching {
-        create(
-            dsn = context.getString(R.string.glomopay_sentry_dsn),
-            sdkVersion = context.getString(R.string.glomopay_sdk_version),
-            sessionId = sessionId,
-            flowType = flowType,
-            devMode = com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD,
-            contexts = { SentryContexts.get(context) },
-        )
-    }.getOrElse {
-        GlomoPayLogger.error("Unable to initialize SDK error reporting", it)
-        NoOpSdkErrorReporter
-    }
+    ): SdkErrorReporter = create(AndroidReporterEnvironment(context), config, sessionId, flowType)
 
-    /** A blank or malformed DSN yields the no-op reporter; this never throws. */
+    /**
+     * A missing or malformed DSN, or a missing SDK version resource, yields the no-op reporter. A
+     * failed host-app version lookup only omits `contexts.app`. Never throws.
+     */
     fun create(
-        dsn: String,
-        sdkVersion: String,
+        environment: ReporterEnvironment,
+        config: GlomoPayConfig,
         sessionId: String,
         flowType: String,
-        devMode: Boolean,
-        contexts: () -> SentryContexts = { SentryContexts() },
+        devMode: Boolean = com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD,
     ): SdkErrorReporter = runCatching {
-        val parsed = SentryDsn.parse(dsn) ?: return NoOpSdkErrorReporter
+        val dsn = SentryDsn.parse(environment.sentryDsn()) ?: return NoOpSdkErrorReporter
+        val sdkVersion = environment.sdkVersion()
+        val bundle = SentryClientHolder.get(dsn, sdkVersion) { SentryContexts.collect(environment) }
         IsolatedSentryErrorReporter(
-            client = SentryClientHolder.get(parsed, sdkVersion),
+            client = bundle.client,
             sdkVersion = sdkVersion,
             sessionId = sessionId,
             initialFlowType = flowType,
             devMode = devMode,
-            // Collected only once a usable DSN exists, and then once per process.
-            contexts = runCatching(contexts).getOrDefault(SentryContexts()),
+            orderId = config.orderId,
+            contexts = bundle.contexts,
         )
     }.getOrElse {
         GlomoPayLogger.error("Unable to initialize SDK error reporting", it)
@@ -204,15 +202,21 @@ internal object SdkErrorReporterFactory {
     }
 }
 
+private class SentryReporterBundle(val client: SentryEnvelopeClient, val contexts: SentryContexts)
+
 /**
- * One client per DSN for the process, so its delivery thread, queue bound and rate-limit state are
- * shared by every checkout rather than reset per session. Sentry counts limits per project.
+ * One client per DSN for the process, so its delivery thread, queue bound, rate-limit state and
+ * drop count are shared by every checkout rather than reset per session; Sentry counts limits per
+ * project. Device and app contexts are collected once, alongside it.
  */
 private object SentryClientHolder {
-    private val clients = ConcurrentHashMap<String, SentryEnvelopeClient>()
+    private val bundles = ConcurrentHashMap<String, SentryReporterBundle>()
 
-    fun get(dsn: SentryDsn, sdkVersion: String): SentryEnvelopeClient =
-        clients.computeIfAbsent(dsn.value) {
-            SentryEnvelopeClient(dsn = dsn, clientName = "glomo-android-sdk/$sdkVersion")
+    fun get(dsn: SentryDsn, sdkVersion: String, contexts: () -> SentryContexts): SentryReporterBundle =
+        bundles.computeIfAbsent(dsn.value) {
+            SentryReporterBundle(
+                client = SentryEnvelopeClient(dsn = dsn, clientName = "glomo-android-sdk/$sdkVersion"),
+                contexts = runCatching(contexts).getOrDefault(SentryContexts()),
+            )
         }
 }

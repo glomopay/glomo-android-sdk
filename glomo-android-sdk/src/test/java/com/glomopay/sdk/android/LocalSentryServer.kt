@@ -13,20 +13,26 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPInputStream
 
 /**
  * A real HTTP/1.1 server on loopback standing in for Sentry's ingest endpoint.
  *
  * Built on java.net.ServerSocket because Android unit tests compile against android.jar, which does
  * not expose com.sun.net.httpserver. Deliberately small: one request per connection, then close.
+ * A `Content-Encoding: gzip` body is decompressed, as Sentry's ingest does; [Request.rawBody] keeps
+ * the bytes exactly as they arrived.
  */
 internal class LocalSentryServer : AutoCloseable {
     class Request(
         val method: String,
         val path: String,
         private val headers: Map<String, String>,
-        val body: ByteArray,
+        val rawBody: ByteArray,
     ) {
+        val body: ByteArray =
+            if (header("Content-Encoding") == "gzip") GZIPInputStream(rawBody.inputStream()).readBytes() else rawBody
+
         fun header(name: String): String? = headers[name.lowercase()]
 
         val lines: List<String>

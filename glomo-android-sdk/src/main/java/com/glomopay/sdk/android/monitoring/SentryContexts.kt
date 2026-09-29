@@ -1,8 +1,6 @@
 package com.glomopay.sdk.android.monitoring
 
-import android.content.Context
 import android.os.Build
-import androidx.core.content.pm.PackageInfoCompat
 import org.json.JSONObject
 
 /**
@@ -56,19 +54,10 @@ internal data class SentryContexts(
             appBuild = appBuild,
         )
 
-        @Volatile private var cached: SentryContexts? = null
-
-        /** Collected once per process; none of these values change while the app runs. */
-        fun get(context: Context): SentryContexts = cached ?: collect(context).also { cached = it }
-
-        private fun collect(context: Context): SentryContexts {
-            val packageInfo = runCatching {
-                context.packageManager.getPackageInfo(context.packageName, 0)
-            }.getOrNull()
-            return fromBuild(
-                appVersion = packageInfo?.versionName,
-                appBuild = packageInfo?.let { runCatching { PackageInfoCompat.getLongVersionCode(it).toString() }.getOrNull() },
-            )
+        /** A failed host-app version lookup omits `contexts.app`; it never fails the reporter. */
+        fun collect(environment: ReporterEnvironment): SentryContexts {
+            val app = runCatching { environment.hostAppVersion() }.getOrNull()
+            return fromBuild(appVersion = app?.versionName, appBuild = app?.versionCode)
         }
     }
 }

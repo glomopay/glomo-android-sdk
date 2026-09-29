@@ -44,6 +44,11 @@ public API changes require a new major release.
   stores the device's public IP as it sees it (`user.ip_address`) and an IP-derived country/city
   (`user.geo`). The SDK sends no user id, email, username or name. Mixpanel analytics already
   receive the same IP (`?ip=1`) for geolocation.
+- SDK error events are tagged with the checkout's `order_id` (from `GlomoPayConfig.orderId`, when
+  set) as a join key to backend logs.
+- SDK error envelopes are sent gzip-compressed. Events dropped by a rate limit, a full queue or a
+  failed delivery are counted and reported on the next event that gets through as
+  `extra.dropped_since_last_send`.
 - SDK error events no longer carry the merchant application's ProGuard UUID from
   `sentry-debug-meta.properties`; merchant mapping uploads are not used by Glomo's Sentry project.
 - Sentry issue grouping for SDK errors may change once, because the reported client name, SDK
