@@ -30,6 +30,17 @@ public API changes require a new major release.
 - Remove unused CheckoutStatus and CheckoutUrlBuilder; make GlomoPayResult internal. Deprecate diagnostic onEvent and namespace SDK-originated events.
 - Add localized error messages and Retry/Cancel controls to bank-flow errors.
 
+### Changed
+
+- Removed the `io.sentry:sentry` dependency. SDK error reports are now sent by a small internal
+  client for Sentry's HTTP envelope endpoint, so the SDK no longer adds a Sentry artifact to the
+  merchant's dependency graph or conflicts with the merchant's own Sentry version. No public API
+  change. Reported fields, tags, context allowlist and breadcrumbs are unchanged.
+- SDK error events no longer carry the merchant application's ProGuard UUID from
+  `sentry-debug-meta.properties`; merchant mapping uploads are not used by GlomoPay's Sentry project.
+- Sentry issue grouping for SDK errors may change once, because the reported client name, SDK
+  name and payload shape differ from the previous Sentry Java client.
+
 ### Fixed
 
 - Preserve merchant cookies, the process-wide WebView resource cache, and the

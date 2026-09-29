@@ -1,93 +1,353 @@
 package com.glomopay.sdk.android
 
 import com.glomopay.sdk.android.monitoring.IsolatedSentryErrorReporter
-import com.glomopay.sdk.android.monitoring.SentryCaptureClient
-import com.glomopay.sdk.android.monitoring.createIsolatedSentryOptions
-import io.sentry.IScope
-import io.sentry.SentryEvent
-import io.sentry.SentryOptions
-import io.sentry.protocol.Request
-import io.sentry.protocol.User
+import com.glomopay.sdk.android.monitoring.NoOpSdkErrorReporter
+import com.glomopay.sdk.android.monitoring.SdkErrorReporter
+import com.glomopay.sdk.android.monitoring.SdkErrorReporterFactory
+import com.glomopay.sdk.android.monitoring.SentryDsn
+import com.glomopay.sdk.android.monitoring.SentryEnvelope
+import com.glomopay.sdk.android.monitoring.SentryEnvelopeClient
+import com.glomopay.sdk.android.monitoring.SentryRateLimiter
+import com.glomopay.sdk.android.monitoring.SentrySendResult
+import org.json.JSONObject
+import org.junit.Assume.assumeTrue
+import java.net.ServerSocket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class IsolatedSentryErrorReporterTest {
-    @Test
-    fun capture_replaces_sensitive_exception_text_and_limits_context() {
-        val capture = RecordingSentryCapture()
-        val reporter = IsolatedSentryErrorReporter(
-            options = SentryOptions(),
-            client = capture,
-            sessionId = "session-uuid",
-            initialFlowType = "auto",
-            devMode = false,
-        )
-        reporter.addBreadcrumb(
-            category = "analytics",
-            message = "Payment Failure",
-            data = mapOf("event_name" to "Payment Failure", "customer_email" to "user@example.com"),
-        )
+    private val server = LocalSentryServer()
 
+    @AfterTest
+    fun stopServer() = server.close()
+
+    @Test
+    fun capture_posts_a_sentry_envelope_to_the_endpoint_derived_from_the_dsn() {
+        reporter().capture("mixpanel_delivery", IllegalStateException("boom"))
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/${LocalSentryServer.PROJECT_ID}/envelope/", request.path)
+        assertEquals("application/x-sentry-envelope", request.header("Content-Type"))
+        assertEquals(
+            "Sentry sentry_version=7, sentry_client=glomo-android-sdk/1.2.3, " +
+                "sentry_key=${LocalSentryServer.PUBLIC_KEY}",
+            request.header("X-Sentry-Auth"),
+        )
+        assertEquals("glomo-android-sdk/1.2.3", request.header("User-Agent"))
+
+        assertEquals(4, request.lines.size, "three lines plus the trailing newline")
+        assertEquals("", request.lines[3])
+        val event = request.event
+        assertEquals(event.getString("event_id"), request.envelopeHeader.getString("event_id"))
+        assertTrue(event.getString("event_id").matches(Regex("[0-9a-f]{32}")))
+        assertTrue(request.envelopeHeader.getString("sent_at").matches(ISO_UTC))
+        assertEquals(server.dsn, request.envelopeHeader.getString("dsn"))
+        assertEquals("event", request.itemHeader.getString("type"))
+        assertEquals(request.lines[2].toByteArray(Charsets.UTF_8).size, request.itemHeader.getInt("length"))
+    }
+
+    @Test
+    fun event_carries_only_the_approved_fields() {
+        val reporter = reporter(sessionId = "session-uuid", flowType = "auto")
         reporter.updateFlowType("standard")
-        reporter.capture(
+
+        reporter.capture("mixpanel_delivery", IllegalStateException("customer user@example.com failed"))
+
+        val event = server.takeRequest().event
+        // Allowlist, not a denylist: no user, request, server_name, contexts, modules, threads or
+        // debug_meta, and nothing else the reporter did not deliberately add.
+        assertEquals(
+            setOf(
+                "event_id", "timestamp", "platform", "level", "logger", "release", "environment",
+                "sdk", "tags", "extra", "exception",
+            ),
+            event.keySet(),
+        )
+        assertEquals("error", event.getString("level"))
+        assertEquals("com.glomopay.sdk.android", event.getString("logger"))
+        assertEquals("java", event.getString("platform"))
+        assertEquals("glomo-android-sdk@1.2.3", event.getString("release"))
+        assertEquals("glomo-android-sdk", event.getString("environment"))
+        assertTrue(event.getString("timestamp").matches(ISO_UTC))
+        assertEquals(
+            mapOf(
+                "sdk_source" to "glomo-android-sdk",
+                "operation" to "mixpanel_delivery",
+                "flow_type" to "standard",
+                "sdk_session_id" to "session-uuid",
+                "dev_mode" to "false",
+            ),
+            event.getJSONObject("tags").toMap(),
+        )
+        assertEquals(mapOf<String, Any?>("session_id" to "session-uuid"), event.getJSONObject("extra").toMap())
+    }
+
+    @Test
+    fun context_outside_the_allowlist_never_reaches_the_wire() {
+        reporter().capture(
             operation = "mixpanel_delivery",
-            error = IllegalStateException("customer user@example.com failed"),
+            error = IllegalStateException("boom"),
             context = mapOf(
-                "event_name" to "Payment Failure",
+                "event_name" to "Payment Failure for user@example.com",
+                "status_code" to 503,
                 "customer_email" to "user@example.com",
-                "checkout_url" to "https://bank.example/?account=123456789",
+                "checkout_url" to "https://bank.example/?account=98765432100",
+                "order_id" to "order_synthetic_1",
+                "fallback_type" to null,
             ),
         )
 
-        val event = capture.event ?: error("Expected a Sentry event")
-        assertEquals("mixpanel_delivery", event.getTag("operation"))
-        assertEquals("standard", event.getTag("flow_type"))
-        assertEquals("session-uuid", event.getExtra("session_id"))
-        assertEquals("Payment Failure", event.getExtra("event_name"))
-        assertFalse(event.extras.orEmpty().containsKey("customer_email"))
-        assertFalse(event.extras.orEmpty().containsKey("checkout_url"))
-        assertFalse(event.throwable?.message.orEmpty().contains("user@example.com"))
-        assertEquals(1, event.breadcrumbs?.size)
+        val request = server.takeRequest()
+        val extra = request.event.getJSONObject("extra").toMap()
+        assertEquals(
+            mapOf<String, Any?>(
+                "session_id" to "session-uuid",
+                "event_name" to "Payment Failure for [REDACTED]",
+                "status_code" to 503,
+            ),
+            extra,
+        )
+        val wire = String(request.body, Charsets.UTF_8)
+        listOf("user@example.com", "98765432100", "bank.example", "order_synthetic_1", "checkout_url")
+            .forEach { assertFalse(wire.contains(it), "<$it> leaked onto the wire") }
     }
 
     @Test
-    fun isolated_options_disable_global_and_pii_features() {
-        val options = createIsolatedSentryOptions(
-            dsn = "https://public@example.invalid/1",
-            sdkVersion = "1.0.0",
-        )
+    fun exception_keeps_the_stack_trace_but_not_the_original_message() {
+        val error = IllegalStateException("customer user@example.com PAN ABCDE1234F failed")
 
-        assertFalse(options.isSendDefaultPii)
-        assertFalse(options.isEnableExternalConfiguration)
-        assertFalse(options.isEnableUncaughtExceptionHandler)
-        assertFalse(options.isEnableShutdownHook)
-        assertFalse(options.isEnableAutoSessionTracking)
-        assertFalse(options.isAttachThreads)
-        assertEquals(0.0, options.tracesSampleRate)
-        assertEquals(0.0, options.profilesSampleRate)
-        assertEquals("12345678-1234-1234-1234-123456789abc", options.proguardUuid)
+        reporter().capture("webview_load", error)
 
-        val event = SentryEvent().apply {
-            user = User().apply { email = "user@example.com" }
-            request = Request().apply { url = "https://merchant.example/private" }
-            serverName = "merchant-server"
-        }
-        val filtered = options.beforeSend?.execute(event, io.sentry.Hint())
-        assertNull(filtered?.user)
-        assertNull(filtered?.request)
-        assertNull(filtered?.serverName)
+        val request = server.takeRequest()
+        val exception = request.event.getJSONObject("exception").getJSONArray("values").getJSONObject(0)
+        assertEquals("RuntimeException", exception.getString("type"))
+        assertEquals("java.lang", exception.getString("module"))
+        assertEquals("webview_load failed (IllegalStateException)", exception.getString("value"))
+        assertEquals(true, exception.getJSONObject("mechanism").getBoolean("handled"))
+
+        val frames = exception.getJSONObject("stacktrace").getJSONArray("frames")
+        assertEquals(error.stackTrace.size, frames.length())
+        // Sentry wants the innermost frame last.
+        val innermost = frames.getJSONObject(frames.length() - 1)
+        assertEquals(error.stackTrace[0].className, innermost.getString("module"))
+        assertEquals(error.stackTrace[0].methodName, innermost.getString("function"))
+        assertEquals(error.stackTrace[0].lineNumber, innermost.getInt("lineno"))
+        assertEquals("IsolatedSentryErrorReporterTest.kt", innermost.getString("filename"))
+        assertTrue(innermost.getBoolean("in_app"))
+        val junitFrame = (0 until frames.length()).map(frames::getJSONObject)
+            .first { it.getString("module").startsWith("org.junit") }
+        assertFalse(junitFrame.getBoolean("in_app"))
+
+        val wire = String(request.body, Charsets.UTF_8)
+        assertFalse(wire.contains("user@example.com"))
+        assertFalse(wire.contains("ABCDE1234F"))
     }
 
-    private class RecordingSentryCapture : SentryCaptureClient {
-        var event: SentryEvent? = null
-        var scope: IScope? = null
-
-        override fun capture(event: SentryEvent, scope: IScope) {
-            this.event = event
-            this.scope = scope
+    @Test
+    fun breadcrumbs_are_sanitized_capped_at_thirty_and_drop_the_oldest() {
+        val reporter = reporter()
+        (1..35).forEach { step ->
+            reporter.addBreadcrumb(
+                category = "analytics",
+                message = "step $step",
+                data = mapOf("event_name" to "Step $step", "customer_email" to "user@example.com"),
+            )
         }
+
+        reporter.capture("mixpanel_delivery", IllegalStateException("boom"))
+
+        val request = server.takeRequest()
+        val values = request.event.getJSONObject("breadcrumbs").getJSONArray("values")
+        assertEquals(30, values.length())
+        assertEquals("step 6", values.getJSONObject(0).getString("message"))
+        assertEquals("step 35", values.getJSONObject(29).getString("message"))
+        val crumb = values.getJSONObject(29)
+        assertEquals("analytics", crumb.getString("category"))
+        assertEquals("info", crumb.getString("level"))
+        assertTrue(crumb.getString("timestamp").matches(ISO_UTC))
+        assertEquals(mapOf<String, Any?>("event_name" to "Step 35"), crumb.getJSONObject("data").toMap())
+        assertFalse(String(request.body, Charsets.UTF_8).contains("user@example.com"))
+    }
+
+    @Test
+    fun a_429_with_retry_after_drops_later_events_until_the_window_passes() {
+        var now = 1_000_000L
+        val reporter = reporter(rateLimiter = SentryRateLimiter { now })
+        server.respondNext(429, mapOf("Retry-After" to "60"))
+
+        reporter.capture("first", IllegalStateException("boom"))
+        server.takeRequest()
+        reporter.capture("second", IllegalStateException("boom"))
+        assertNull(server.requests.poll(300, TimeUnit.MILLISECONDS), "rate-limited event was sent")
+
+        now += 61_000
+        reporter.capture("third", IllegalStateException("boom"))
+        assertEquals("third", server.takeRequest().event.getJSONObject("tags").getString("operation"))
+    }
+
+    @Test
+    fun a_rate_limit_header_on_a_success_drops_later_error_events() {
+        val reporter = reporter()
+        server.respondNext(200, mapOf("X-Sentry-Rate-Limits" to "60:error:organization"))
+
+        reporter.capture("first", IllegalStateException("boom"))
+        server.takeRequest()
+        reporter.capture("second", IllegalStateException("boom"))
+
+        assertNull(server.requests.poll(300, TimeUnit.MILLISECONDS), "rate-limited event was sent")
+    }
+
+    @Test
+    fun a_rate_limit_for_another_category_does_not_drop_error_events() {
+        val reporter = reporter()
+        server.respondNext(200, mapOf("X-Sentry-Rate-Limits" to "60:transaction:organization"))
+
+        reporter.capture("first", IllegalStateException("boom"))
+        server.takeRequest()
+        reporter.capture("second", IllegalStateException("boom"))
+
+        assertEquals("second", server.takeRequest().event.getJSONObject("tags").getString("operation"))
+    }
+
+    @Test
+    fun a_server_error_neither_throws_nor_blocks_the_next_event() {
+        val reporter = reporter()
+        server.respondNext(503)
+
+        reporter.capture("first", IllegalStateException("boom"))
+        server.takeRequest()
+        reporter.capture("second", IllegalStateException("boom"))
+
+        assertEquals("second", server.takeRequest().event.getJSONObject("tags").getString("operation"))
+    }
+
+    @Test
+    fun an_unreachable_endpoint_never_throws() {
+        val closedPort = ServerSocket(0).use { it.localPort }
+        val dsn = "http://${LocalSentryServer.PUBLIC_KEY}@127.0.0.1:$closedPort/1"
+
+        reporter(dsn = dsn).capture("mixpanel_delivery", IllegalStateException("boom"))
+    }
+
+    @Test
+    fun a_server_that_never_answers_is_abandoned_at_the_timeout() {
+        server.hold = CountDownLatch(1)
+        val reporter = reporter(timeoutMillis = 300)
+
+        val started = System.nanoTime()
+        reporter.capture("mixpanel_delivery", IllegalStateException("boom"))
+        val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+
+        server.takeRequest()
+        assertTrue(elapsedMillis < 5_000, "capture took ${elapsedMillis}ms")
+    }
+
+    @Test
+    fun a_throwable_that_fails_to_describe_itself_never_throws_into_the_caller() {
+        val hostile = object : IllegalStateException("boom") {
+            override fun getStackTrace(): Array<StackTraceElement> = throw UnsupportedOperationException()
+        }
+
+        reporter().capture("mixpanel_delivery", hostile)
+        reporter().addBreadcrumb("analytics", "ok", mapOf("event_name" to Double.NaN))
+    }
+
+    @Test
+    fun factory_returns_the_no_op_reporter_for_a_blank_or_malformed_dsn() {
+        listOf("", "   ", "not a dsn", "https://example.com/1", "https://key@example.com").forEach { dsn ->
+            assertSame(NoOpSdkErrorReporter, factoryReporter(dsn), "Expected no-op for <$dsn>")
+        }
+    }
+
+    @Test
+    fun factory_reporter_delivers_off_the_calling_thread() {
+        server.hold = CountDownLatch(1)
+        val reporter = factoryReporter(server.dsn)
+        assertIs<IsolatedSentryErrorReporter>(reporter)
+
+        reporter.capture("mixpanel_delivery", IllegalStateException("boom"))
+
+        // The server is holding its response, so a synchronous send could not have returned yet.
+        val request = server.takeRequest()
+        assertEquals("mixpanel_delivery", request.event.getJSONObject("tags").getString("operation"))
+        server.hold?.countDown()
+    }
+
+    @Test
+    fun factory_reporter_drops_events_once_its_bounded_queue_is_full() {
+        server.hold = CountDownLatch(1)
+        val reporter = factoryReporter(server.dsn)
+
+        reporter.capture("in_flight", IllegalStateException("boom"))
+        server.takeRequest()
+        repeat(SentryEnvelopeClient.MAX_QUEUED_EVENTS + 10) {
+            reporter.capture("queued_$it", IllegalStateException("boom"))
+        }
+        server.hold?.countDown()
+
+        repeat(SentryEnvelopeClient.MAX_QUEUED_EVENTS) { server.takeRequest() }
+        assertNull(server.requests.poll(500, TimeUnit.MILLISECONDS), "more events than the queue bound were sent")
+    }
+
+    /**
+     * Opt-in delivery to a real Sentry project. Skipped unless GLOMO_SENTRY_LIVE_DSN is set; point it
+     * at a scratch project, never at production.
+     */
+    @Test
+    fun live_delivery_to_a_real_sentry_project() {
+        val liveDsn = System.getenv("GLOMO_SENTRY_LIVE_DSN").orEmpty()
+        assumeTrue("GLOMO_SENTRY_LIVE_DSN not set", liveDsn.isNotBlank())
+        val dsn = SentryDsn.parse(liveDsn) ?: error("GLOMO_SENTRY_LIVE_DSN is not a valid DSN")
+        reporter().capture("live_delivery_test", IllegalStateException("boom"))
+        val event = server.takeRequest().event
+
+        val result = SentryEnvelopeClient(dsn, "glomo-android-sdk/1.2.3", executor = Executor(Runnable::run))
+            .deliver(SentryEnvelope.event(event.getString("event_id"), event, dsn, System.currentTimeMillis()))
+
+        assertEquals(SentrySendResult.SENT, result)
+    }
+
+    private fun reporter(
+        dsn: String = server.dsn,
+        sessionId: String = "session-uuid",
+        flowType: String = "auto",
+        rateLimiter: SentryRateLimiter = SentryRateLimiter(),
+        timeoutMillis: Int = SentryEnvelopeClient.TIMEOUT_MILLIS,
+    ): SdkErrorReporter = IsolatedSentryErrorReporter(
+        client = SentryEnvelopeClient(
+            dsn = SentryDsn.parse(dsn) ?: error("invalid test DSN"),
+            clientName = "glomo-android-sdk/1.2.3",
+            executor = Executor(Runnable::run),
+            rateLimiter = rateLimiter,
+            timeoutMillis = timeoutMillis,
+        ),
+        sdkVersion = "1.2.3",
+        sessionId = sessionId,
+        initialFlowType = flowType,
+        devMode = false,
+    )
+
+    private fun factoryReporter(dsn: String): SdkErrorReporter = SdkErrorReporterFactory.create(
+        dsn = dsn,
+        sdkVersion = "1.2.3",
+        sessionId = "session-uuid",
+        flowType = "auto",
+        devMode = false,
+    )
+
+    private fun JSONObject.toMap(): Map<String, Any?> = keySet().associateWith { get(it) }
+
+    private companion object {
+        val ISO_UTC = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z""")
     }
 }
