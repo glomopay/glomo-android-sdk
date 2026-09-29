@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
  * endpoint, with no Sentry SDK on the classpath.
  *
  * Events are built from an allowlist: the fields below are the only ones ever sent. There is no
- * user, request, server name, module list, thread dump or debug-meta, device/OS context is limited
+ * user object (Sentry records the connection IP at ingest, see [sdk]), request, server name, module list, thread dump or debug-meta, device/OS context is limited
  * to [SentryContexts], and the original exception message and cause chain never leave the device.
  */
 internal class IsolatedSentryErrorReporter(
@@ -91,14 +91,14 @@ internal class IsolatedSentryErrorReporter(
     }
 
     /**
-     * `infer_ip: never` stops Relay from taking the sender's connection IP. Without it Relay
-     * geolocates that IP at ingest and stores `user.geo` (country and city) even though the event
-     * has no user and no ip_address.
+     * `infer_ip: auto` tells Relay to store the connection IP as `user.ip_address` and derive
+     * `user.geo` from it, whatever its platform default. The SDK itself sends no user object: no id,
+     * email, username or name.
      */
     private fun sdk(): JSONObject = JSONObject()
         .put("name", SDK_NAME)
         .put("version", sdkVersion)
-        .put("settings", JSONObject().put("infer_ip", "never"))
+        .put("settings", JSONObject().put("infer_ip", "auto"))
 
     /**
      * The exception is replaced by a synthetic one named after the operation, keeping only the

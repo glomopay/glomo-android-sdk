@@ -40,8 +40,10 @@ public API changes require a new major release.
   API level; device manufacturer, brand and model; host app version name and code. These are
   already sent to Mixpanel; no new data category. No device identifiers, locale, timezone,
   battery, memory or screen data.
-- SDK error events tell Sentry never to infer the sender's IP (`sdk.settings.infer_ip: never`), so
-  Sentry stores no IP-derived location (`user.geo`) for them.
+- SDK error events ask Sentry to infer the sender's IP (`sdk.settings.infer_ip: auto`): Sentry
+  stores the device's public IP as it sees it (`user.ip_address`) and an IP-derived country/city
+  (`user.geo`). The SDK sends no user id, email, username or name. Mixpanel analytics already
+  receive the same IP (`?ip=1`) for geolocation.
 - SDK error events no longer carry the merchant application's ProGuard UUID from
   `sentry-debug-meta.properties`; merchant mapping uploads are not used by Glomo's Sentry project.
 - Sentry issue grouping for SDK errors may change once, because the reported client name, SDK

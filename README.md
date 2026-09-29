@@ -237,8 +237,9 @@ Analytics and internal SDK failures can be reported to Glomo's Sentry
 project through a small, dependency-free client for Sentry's HTTP envelope
 endpoint. The SDK does not depend on any Sentry artifact, so it cannot conflict
 with or alter the merchant app's own Sentry setup. It installs no crash, ANR,
-NDK, session or tracing hooks and sends no default PII; only explicitly
-captured SDK errors are reported.
+NDK, session or tracing hooks; only explicitly captured SDK errors are
+reported. Events carry no user identifiers, but Sentry records the device's
+public IP address and an IP-derived country and city for each event.
 
 ## ProGuard and R8
 

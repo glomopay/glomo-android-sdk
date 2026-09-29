@@ -94,7 +94,7 @@ class IsolatedSentryErrorReporterTest {
     }
 
     @Test
-    fun relay_is_told_never_to_infer_the_ip_and_no_user_is_sent() {
+    fun relay_is_told_to_infer_the_ip_and_no_user_fields_are_sent() {
         reporter().capture("mixpanel_delivery", IllegalStateException("boom"))
 
         val request = server.takeRequest()
@@ -103,10 +103,11 @@ class IsolatedSentryErrorReporterTest {
             mapOf<String, Any?>("name" to "glomo-android-sdk", "version" to "1.2.3"),
             (sdk.keySet() - "settings").associateWith { sdk.get(it) },
         )
-        assertEquals(mapOf<String, Any?>("infer_ip" to "never"), sdk.getJSONObject("settings").toMap())
+        assertEquals(mapOf<String, Any?>("infer_ip" to "auto"), sdk.getJSONObject("settings").toMap())
+        // Inference needs no user object, so none is sent: no id, email, username or name.
         assertFalse(request.event.has("user"))
         val wire = String(request.body, Charsets.UTF_8)
-        listOf("\"user\"", "ip_address", "{{auto}}", "\"geo\"").forEach {
+        listOf("\"user\"", "\"email\"", "\"username\"", "ip_address").forEach {
             assertFalse(wire.contains(it), "<$it> reached the wire")
         }
     }

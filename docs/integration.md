@@ -137,10 +137,11 @@ or region is built into the SDK. Never commit the DSN to `gradle.properties`; in
 The client installs no uncaught-exception handler, shutdown hook, ANR, NDK, session, tracing,
 profiling, or Session Replay collection. Only failures explicitly captured within the Glomo SDK
 boundary are sent, on a background thread behind a small bounded queue; events are dropped, never
-queued, when Sentry signals a rate limit. Events carry no user, request, server name, module list,
-or thread dump, and the original exception message is replaced by the name of the failed operation.
-Each event sets `sdk.settings.infer_ip` to `never`, so Sentry neither records nor geolocates the
-sender's IP address.
+queued, when Sentry signals a rate limit. Events carry no request, server name, module list, or
+thread dump, and the original exception message is replaced by the name of the failed operation.
+The SDK sends no user id, email, username or name. Each event sets `sdk.settings.infer_ip` to
+`auto`, so Sentry stores the device's public IP address as it sees it and an IP-derived country and
+city. Mixpanel analytics already receive the same IP (`?ip=1`) for geolocation.
 For triage they carry the OS version and API level, the device manufacturer, brand and model, and
 the host app's version name and code, a subset of what the Mixpanel events already carry. They
 never carry ANDROID_ID, an advertising id, the user-set device name, locale, timezone, battery,
