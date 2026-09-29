@@ -78,7 +78,6 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("com.scottyab:rootbeer-lib:0.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("io.sentry:sentry:8.50.1")
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.0.21")
     testImplementation("org.json:json:20240303")

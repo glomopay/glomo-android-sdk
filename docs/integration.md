@@ -121,29 +121,42 @@ as null to distinguish "not checked" from a passing result.
 
 ## Sentry build configuration
 
-The release build can report explicitly captured SDK and analytics-delivery failures through an
-isolated Sentry client. Supply its DSN using the `SENTRY_DSN` Gradle property or environment
+The release build can report explicitly captured SDK and analytics-delivery failures to Glomo's
+Sentry project through a small, dependency-free client for Sentry's HTTP envelope endpoint. Supply
+its DSN using the `SENTRY_DSN` Gradle property or environment
 variable:
 
 ```bash
 SENTRY_DSN="<android-sdk-dsn>" ./gradlew :glomo-android-sdk:assembleRelease
 ```
 
-If the DSN is absent, error reporting uses a no-op implementation and checkout behavior is
-unchanged. Never commit the DSN to `gradle.properties`; inject it through release CI.
+If the DSN is absent or malformed, error reporting uses a no-op implementation and checkout
+behavior is unchanged. The ingestion endpoint is derived from the DSN at runtime, so no Sentry host
+or region is built into the SDK. Never commit the DSN to `gradle.properties`; inject it through release CI.
 
-The SDK does not call global Sentry initialization and therefore does not replace the merchant's
-Sentry client. It excludes NDK and Session Replay and disables app-wide uncaught-exception, ANR,
-session, PII, tracing, and profiling collection. Only failures explicitly captured within the
-GlomoPay SDK boundary are sent.
+The client installs no uncaught-exception handler, shutdown hook, ANR, NDK, session, tracing,
+profiling, or Session Replay collection. Only failures explicitly captured within the Glomo SDK
+boundary are sent, gzip-compressed, on a background thread behind a small bounded queue; events are
+dropped, never queued, when Sentry signals a rate limit, the queue is full or delivery fails. The
+number of events dropped since the last successful send is reported on the next event that gets
+through (`extra.dropped_since_last_send`). Stack traces longer than 100 frames keep the innermost
+80 and outermost 20 frames, and `extra.frames_truncated` records how many were dropped. Events carry no request, server name, module list, or
+thread dump, and the original exception message is replaced by the name of the failed operation.
+The SDK sends no IP address and no user id, email, username or name. Sentry derives approximate
+location (country, region, city) at ingest and the SDK does not store the device IP;
+`infer_ip: "never"` makes this explicit.
+Each event is tagged with the checkout's `order_id` from `GlomoPayConfig`, when one is set, so an
+SDK error can be joined to backend logs for the same order.
+For triage they carry the OS version and API level, the device manufacturer, brand and model, and
+the host app's version name and code, a subset of what the Mixpanel events already carry. They
+never carry ANDROID_ID, an advertising id, the user-set device name, locale, timezone, battery,
+memory or screen details.
 
 ### Sentry dependency compatibility
 
-The SDK transitively depends on `io.sentry:sentry:8.50.1`. Merchant applications
-that already use an older major version of Sentry should upgrade their
-`io.sentry:sentry-android` dependency to a compatible `8.x` version. Keeping the
-merchant application and the SDK on the same Sentry major version avoids Gradle
-dependency resolution and runtime compatibility issues.
+The SDK does not depend on any Sentry artifact. A merchant application can use its own
+`io.sentry:sentry-android` dependency and Sentry Gradle plugin at any version; the SDK neither
+reads nor alters that configuration.
 
 ## ProGuard/R8 and Sentry mappings
 
@@ -158,16 +171,8 @@ App Bundle. It is normally available at:
 app/build/outputs/mapping/<variant>/mapping.txt
 ```
 
-For readable stack traces in the GlomoPay-owned Sentry project, that exact mapping must be uploaded
-from the merchant application's protected build/CI job using GlomoPay-provided, least-privilege
-Sentry credentials and the matching release/build metadata. Do not commit the mapping, Sentry auth
-token, or `sentry.properties` credentials to source control.
-
-The isolated SDK client reads the standard generated `sentry-debug-meta.properties` mapping UUID
-so Sentry can associate an event with that upload. It reads only debug-meta identifiers, not the
-merchant's Sentry DSN, auth token, scope, or runtime client configuration.
-
-Do not apply automatic Sentry runtime initialization for this purpose. If the Sentry Android Gradle
-plugin or `sentry-cli` is used for mapping upload, configure it only in the final application build
-and keep automatic SDK installation and instrumentation disabled. This preserves the isolated
-GlomoPay Sentry client and avoids altering the merchant application's own Sentry configuration.
+SDK error events carry the stack trace as it exists at runtime. In a merchant release build where
+R8 obfuscates SDK classes, frames arrive with obfuscated class and method names; source file names
+and line numbers are preserved by the consumer rules. The SDK does not read the merchant
+application's `sentry-debug-meta.properties` or attach a ProGuard UUID to its events, so merchants
+do not need to upload their mapping to Glomo or change their own Sentry setup.

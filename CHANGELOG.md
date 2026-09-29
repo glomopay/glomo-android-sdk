@@ -30,6 +30,32 @@ public API changes require a new major release.
 - Remove unused CheckoutStatus and CheckoutUrlBuilder; make GlomoPayResult internal. Deprecate diagnostic onEvent and namespace SDK-originated events.
 - Add localized error messages and Retry/Cancel controls to bank-flow errors.
 
+### Changed
+
+- Removed the `io.sentry:sentry` dependency. SDK error reports are now sent by a small internal
+  client for Sentry's HTTP envelope endpoint, so the SDK no longer adds a Sentry artifact to the
+  merchant's dependency graph or conflicts with the merchant's own Sentry version. No public API
+  change. Reported fields, tags, context allowlist and breadcrumbs are unchanged.
+- SDK error events now carry a minimal Sentry `contexts` block for triage: OS name, version and
+  API level; device manufacturer, brand and model; host app version name and code. These are
+  already sent to Mixpanel; no new data category. No device identifiers, locale, timezone,
+  battery, memory or screen data.
+- SDK error events send no IP address and no user object (no id, email, username or name).
+  Sentry derives approximate location (country, region, city) at ingest and the SDK does not store
+  the device IP; `infer_ip: "never"` makes this explicit.
+- SDK error events are tagged with the checkout's `order_id` (from `GlomoPayConfig.orderId`, when
+  set) as a join key to backend logs.
+- SDK error envelopes are sent gzip-compressed. Events dropped by a rate limit, a full queue or a
+  failed delivery are counted and reported on the next event that gets through as
+  `extra.dropped_since_last_send`.
+- Stack traces longer than 100 frames keep the innermost 80 and outermost 20 frames, so the SDK
+  entry point survives on deep merchant-callback traces; `extra.frames_truncated` records the
+  number dropped.
+- SDK error events no longer carry the merchant application's ProGuard UUID from
+  `sentry-debug-meta.properties`; merchant mapping uploads are not used by Glomo's Sentry project.
+- Sentry issue grouping for SDK errors may change once, because the reported client name, SDK
+  name and payload shape differ from the previous Sentry Java client.
+
 ### Fixed
 
 - Preserve merchant cookies, the process-wide WebView resource cache, and the
