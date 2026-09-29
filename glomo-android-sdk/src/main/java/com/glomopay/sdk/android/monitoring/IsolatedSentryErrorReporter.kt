@@ -16,8 +16,8 @@ import java.util.concurrent.ConcurrentHashMap
  * endpoint, with no Sentry SDK on the classpath.
  *
  * Events are built from an allowlist: the fields below are the only ones ever sent. There is no
- * user, request, server name, device/OS context, module list, thread dump or debug-meta, and the
- * original exception message and cause chain never leave the device.
+ * user, request, server name, module list, thread dump or debug-meta, device/OS context is limited
+ * to [SentryContexts], and the original exception message and cause chain never leave the device.
  */
 internal class IsolatedSentryErrorReporter(
     private val client: SentryEnvelopeClient,
@@ -25,6 +25,7 @@ internal class IsolatedSentryErrorReporter(
     private val sessionId: String,
     initialFlowType: String,
     private val devMode: Boolean,
+    private val contexts: SentryContexts = SentryContexts(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) : SdkErrorReporter {
     private val breadcrumbs = ArrayDeque<JSONObject>()
@@ -84,6 +85,7 @@ internal class IsolatedSentryErrorReporter(
             .put("sdk", JSONObject().put("name", SDK_NAME).put("version", sdkVersion))
             .put("tags", tags)
             .put("extra", extra)
+            .put("contexts", contexts.toJson())
             .put("exception", JSONObject().put("values", JSONArray().put(exception(operation, error))))
             .apply { if (crumbs.length() > 0) put("breadcrumbs", JSONObject().put("values", crumbs)) }
     }
@@ -160,6 +162,7 @@ internal object SdkErrorReporterFactory {
             sessionId = sessionId,
             flowType = flowType,
             devMode = com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD,
+            contexts = { SentryContexts.get(context) },
         )
     }.getOrElse {
         GlomoPayLogger.error("Unable to initialize SDK error reporting", it)
@@ -173,6 +176,7 @@ internal object SdkErrorReporterFactory {
         sessionId: String,
         flowType: String,
         devMode: Boolean,
+        contexts: () -> SentryContexts = { SentryContexts() },
     ): SdkErrorReporter = runCatching {
         val parsed = SentryDsn.parse(dsn) ?: return NoOpSdkErrorReporter
         IsolatedSentryErrorReporter(
@@ -181,6 +185,8 @@ internal object SdkErrorReporterFactory {
             sessionId = sessionId,
             initialFlowType = flowType,
             devMode = devMode,
+            // Collected only once a usable DSN exists, and then once per process.
+            contexts = runCatching(contexts).getOrDefault(SentryContexts()),
         )
     }.getOrElse {
         GlomoPayLogger.error("Unable to initialize SDK error reporting", it)

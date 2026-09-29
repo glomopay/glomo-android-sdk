@@ -36,6 +36,10 @@ public API changes require a new major release.
   client for Sentry's HTTP envelope endpoint, so the SDK no longer adds a Sentry artifact to the
   merchant's dependency graph or conflicts with the merchant's own Sentry version. No public API
   change. Reported fields, tags, context allowlist and breadcrumbs are unchanged.
+- SDK error events now carry a minimal Sentry `contexts` block for triage: OS name, version and
+  API level; device manufacturer, brand and model; host app version name and code. These are
+  already sent to Mixpanel; no new data category. No device identifiers, locale, timezone,
+  battery, memory or screen data.
 - SDK error events no longer carry the merchant application's ProGuard UUID from
   `sentry-debug-meta.properties`; merchant mapping uploads are not used by Glomo's Sentry project.
 - Sentry issue grouping for SDK errors may change once, because the reported client name, SDK

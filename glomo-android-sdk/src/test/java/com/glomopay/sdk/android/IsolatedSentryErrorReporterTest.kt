@@ -4,6 +4,7 @@ import com.glomopay.sdk.android.monitoring.IsolatedSentryErrorReporter
 import com.glomopay.sdk.android.monitoring.NoOpSdkErrorReporter
 import com.glomopay.sdk.android.monitoring.SdkErrorReporter
 import com.glomopay.sdk.android.monitoring.SdkErrorReporterFactory
+import com.glomopay.sdk.android.monitoring.SentryContexts
 import com.glomopay.sdk.android.monitoring.SentryDsn
 import com.glomopay.sdk.android.monitoring.SentryEnvelope
 import com.glomopay.sdk.android.monitoring.SentryEnvelopeClient
@@ -64,12 +65,12 @@ class IsolatedSentryErrorReporterTest {
         reporter.capture("mixpanel_delivery", IllegalStateException("customer user@example.com failed"))
 
         val event = server.takeRequest().event
-        // Allowlist, not a denylist: no user, request, server_name, contexts, modules, threads or
+        // Allowlist, not a denylist: no user, request, server_name, modules, threads or
         // debug_meta, and nothing else the reporter did not deliberately add.
         assertEquals(
             setOf(
                 "event_id", "timestamp", "platform", "level", "logger", "release", "environment",
-                "sdk", "tags", "extra", "exception",
+                "sdk", "tags", "extra", "exception", "contexts",
             ),
             event.keySet(),
         )
@@ -90,6 +91,64 @@ class IsolatedSentryErrorReporterTest {
             event.getJSONObject("tags").toMap(),
         )
         assertEquals(mapOf<String, Any?>("session_id" to "session-uuid"), event.getJSONObject("extra").toMap())
+    }
+
+    @Test
+    fun contexts_carry_only_the_approved_os_device_and_app_fields() {
+        val contexts = SentryContexts(
+            osVersion = "14",
+            apiLevel = 34,
+            manufacturer = "Google",
+            brand = "google",
+            model = "Pixel 8",
+            appVersion = "3.2.1",
+            appBuild = "302010",
+        )
+
+        reporter(contexts = contexts).capture("mixpanel_delivery", IllegalStateException("boom"))
+
+        val request = server.takeRequest()
+        val sent = request.event.getJSONObject("contexts")
+        assertEquals(setOf("os", "device", "app"), sent.keySet())
+        assertEquals(
+            mapOf<String, Any?>("type" to "os", "name" to "Android", "version" to "14", "api_level" to 34),
+            sent.getJSONObject("os").toMap(),
+        )
+        assertEquals(
+            mapOf<String, Any?>("type" to "device", "manufacturer" to "Google", "brand" to "google", "model" to "Pixel 8"),
+            sent.getJSONObject("device").toMap(),
+        )
+        assertEquals(
+            mapOf<String, Any?>("type" to "app", "app_version" to "3.2.1", "app_build" to "302010"),
+            sent.getJSONObject("app").toMap(),
+        )
+        val wire = String(request.body, Charsets.UTF_8).lowercase()
+        listOf(
+            "android_id", "advertising", "ip_address", "device_name", "locale", "timezone", "battery",
+            "memory", "screen", "package", "app_name", "app_identifier", "boot_time", "storage", "user",
+        ).forEach { assertFalse(wire.contains(it), "<$it> reached the wire") }
+    }
+
+    @Test
+    fun contexts_omit_missing_or_blank_fields() {
+        reporter(contexts = SentryContexts(osVersion = " ", apiLevel = 0, model = "Pixel 8"))
+            .capture("mixpanel_delivery", IllegalStateException("boom"))
+
+        val sent = server.takeRequest().event.getJSONObject("contexts")
+        assertEquals(setOf("os", "device"), sent.keySet())
+        assertEquals(mapOf<String, Any?>("type" to "os", "name" to "Android"), sent.getJSONObject("os").toMap())
+        assertEquals(mapOf<String, Any?>("type" to "device", "model" to "Pixel 8"), sent.getJSONObject("device").toMap())
+    }
+
+    @Test
+    fun contexts_read_from_build_never_throw_when_build_fields_are_unavailable() {
+        // JVM unit tests run against a stubbed android.os.Build, the worst case a real build can be.
+        val contexts = SentryContexts.fromBuild(appVersion = null, appBuild = null)
+
+        reporter(contexts = contexts).capture("mixpanel_delivery", IllegalStateException("boom"))
+
+        val sent = server.takeRequest().event.getJSONObject("contexts")
+        assertEquals("Android", sent.getJSONObject("os").getString("name"))
     }
 
     @Test
@@ -323,6 +382,7 @@ class IsolatedSentryErrorReporterTest {
         flowType: String = "auto",
         rateLimiter: SentryRateLimiter = SentryRateLimiter(),
         timeoutMillis: Int = SentryEnvelopeClient.TIMEOUT_MILLIS,
+        contexts: SentryContexts = SentryContexts(),
     ): SdkErrorReporter = IsolatedSentryErrorReporter(
         client = SentryEnvelopeClient(
             dsn = SentryDsn.parse(dsn) ?: error("invalid test DSN"),
@@ -335,6 +395,7 @@ class IsolatedSentryErrorReporterTest {
         sessionId = sessionId,
         initialFlowType = flowType,
         devMode = false,
+        contexts = contexts,
     )
 
     private fun factoryReporter(dsn: String): SdkErrorReporter = SdkErrorReporterFactory.create(
