@@ -97,13 +97,14 @@ internal class IsolatedSentryErrorReporter(
     }
 
     /**
-     * No `settings.infer_ip`, deliberately. Left unset, Sentry derives an approximate location
-     * (`user.geo`) from the connection at ingest but stores no `user.ip_address`, verified on a live
-     * event. `"auto"` would store the raw IP; `"never"` would drop the location as well.
+     * `infer_ip: never`, explicitly: Sentry still derives an approximate location (`user.geo`) at
+     * ingest but stores no `user.ip_address`. Left unset, the outcome depends on Relay's per-platform
+     * default (for `cocoa` that stores the IP), so it is pinned here to match the iOS SDK.
      */
     private fun sdk(): JSONObject = JSONObject()
         .put("name", SDK_NAME)
         .put("version", sdkVersion)
+        .put("settings", JSONObject().put("infer_ip", "never"))
 
     /**
      * The exception is replaced by a synthetic one named after the operation, keeping only the

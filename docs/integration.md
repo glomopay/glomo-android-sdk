@@ -141,8 +141,9 @@ dropped, never queued, when Sentry signals a rate limit, the queue is full or de
 number of events dropped since the last successful send is reported on the next event that gets
 through (`extra.dropped_since_last_send`). Events carry no request, server name, module list, or
 thread dump, and the original exception message is replaced by the name of the failed operation.
-The SDK sends no IP address and no user id, email, username or name. Sentry derives an approximate
-location (country, region, city) from the connection at ingest; the device IP itself is not stored.
+The SDK sends no IP address and no user id, email, username or name. Sentry derives approximate
+location (country, region, city) at ingest and the SDK does not store the device IP;
+`infer_ip: "never"` makes this explicit.
 Each event is tagged with the checkout's `order_id` from `GlomoPayConfig`, when one is set, so an
 SDK error can be joined to backend logs for the same order.
 For triage they carry the OS version and API level, the device manufacturer, brand and model, and
