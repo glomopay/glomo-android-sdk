@@ -359,21 +359,45 @@ class IsolatedSentryErrorReporterTest {
     }
 
     /**
-     * Opt-in delivery to a real Sentry project. Skipped unless GLOMO_SENTRY_LIVE_DSN is set; point it
-     * at a scratch project, never at production.
+     * Opt-in delivery to a real Sentry project. Skipped unless GLOMO_SENTRY_LIVE_DSN is set. The
+     * event is marked as test traffic (operation, tag, message, fake session and release) so it can
+     * be found and resolved. Run it with a single variant task, e.g. testDebugUnitTest, or it sends
+     * once per variant.
      */
     @Test
     fun live_delivery_to_a_real_sentry_project() {
         val liveDsn = System.getenv("GLOMO_SENTRY_LIVE_DSN").orEmpty()
         assumeTrue("GLOMO_SENTRY_LIVE_DSN not set", liveDsn.isNotBlank())
         val dsn = SentryDsn.parse(liveDsn) ?: error("GLOMO_SENTRY_LIVE_DSN is not a valid DSN")
-        reporter().capture("live_delivery_test", IllegalStateException("boom"))
+        val sentAt = System.currentTimeMillis()
+        val version = "0.0.0-delivery-test"
+        IsolatedSentryErrorReporter(
+            client = SentryEnvelopeClient(
+                dsn = SentryDsn.parse(server.dsn) ?: error("invalid test DSN"),
+                clientName = "glomo-android-sdk/$version",
+                executor = Executor(Runnable::run),
+            ),
+            sdkVersion = version,
+            sessionId = "delivery-test-$sentAt",
+            initialFlowType = "auto",
+            devMode = true,
+            contexts = SentryContexts.fromBuild(appVersion = null, appBuild = null),
+        ).capture("delivery_test", IllegalStateException("delivery test"))
         val event = server.takeRequest().event
+        event.getJSONObject("tags").put("delivery_test", "true")
+        event.put("message", JSONObject().put("formatted", "GlomoPay SDK delivery test - safe to resolve"))
+        val eventId = event.getString("event_id")
 
-        val result = SentryEnvelopeClient(dsn, "glomo-android-sdk/1.2.3", executor = Executor(Runnable::run))
-            .deliver(SentryEnvelope.event(event.getString("event_id"), event, dsn, System.currentTimeMillis()))
+        val delivery = SentryEnvelopeClient(dsn, "glomo-android-sdk/$version", executor = Executor(Runnable::run))
+            .deliver(SentryEnvelope.event(eventId, event, dsn, sentAt))
 
-        assertEquals(SentrySendResult.SENT, result)
+        val ist = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'IST'", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata") }
+            .format(java.util.Date(sentAt))
+        println("delivery_test event_id=$eventId status=${delivery.statusCode} sent_at=$ist")
+        assertEquals(200, delivery.statusCode)
+        assertEquals(SentrySendResult.SENT, delivery.result)
+        assertEquals(eventId, JSONObject(delivery.responseBody.orEmpty()).getString("id"))
     }
 
     private fun reporter(

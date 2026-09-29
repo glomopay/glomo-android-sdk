@@ -11,6 +11,13 @@ import java.util.concurrent.TimeUnit
 
 internal enum class SentrySendResult { SENT, RATE_LIMITED, REJECTED, FAILED }
 
+/** Outcome of one POST. [statusCode] and [responseBody] are null when no response arrived. */
+internal data class SentryDelivery(
+    val result: SentrySendResult,
+    val statusCode: Int? = null,
+    val responseBody: String? = null,
+)
+
 /**
  * Minimal client for Sentry's HTTP envelope endpoint. Deliberately not an SDK: it installs no
  * uncaught-exception handler, shutdown hook or session tracking, and only sends events Glomo code
@@ -42,10 +49,10 @@ internal class SentryEnvelopeClient(
     }
 
     /** Posts one serialised envelope on the calling thread. Never throws. */
-    fun deliver(envelope: ByteArray): SentrySendResult {
+    fun deliver(envelope: ByteArray): SentryDelivery {
         if (rateLimiter.isLimited(SentryRateLimiter.ERROR_CATEGORY)) {
             GlomoPayLogger.log("Sentry event dropped: rate limited")
-            return SentrySendResult.RATE_LIMITED
+            return SentryDelivery(SentrySendResult.RATE_LIMITED)
         }
         var connection: HttpURLConnection? = null
         return try {
@@ -65,34 +72,37 @@ internal class SentryEnvelopeClient(
             val status = connection.responseCode
             val response = connection
             rateLimiter.update(status) { name -> response.getHeaderField(name) }
-            drain(connection, status)
-            when {
+            val body = readBody(connection, status)
+            val result = when {
                 status in 200..299 -> SentrySendResult.SENT
                 status == 429 -> SentrySendResult.RATE_LIMITED
                 else -> SentrySendResult.REJECTED
-            }.also { if (it != SentrySendResult.SENT) GlomoPayLogger.log("Sentry returned HTTP $status") }
+            }
+            if (result != SentrySendResult.SENT) GlomoPayLogger.log("Sentry returned HTTP $status")
+            SentryDelivery(result, status, body)
         } catch (error: Throwable) {
             GlomoPayLogger.error("Sentry delivery failed", error)
-            SentrySendResult.FAILED
+            SentryDelivery(SentrySendResult.FAILED)
         } finally {
             connection?.disconnect()
         }
     }
 
-    /** Reads and discards the (small) response body so the connection is released. */
-    private fun drain(connection: HttpURLConnection, status: Int) {
-        runCatching {
-            (if (status in 200..299) connection.inputStream else connection.errorStream)?.use { stream ->
-                val buffer = ByteArray(1_024)
-                var remaining = MAX_RESPONSE_BYTES
-                while (remaining > 0) {
-                    val read = stream.read(buffer, 0, minOf(buffer.size, remaining))
-                    if (read < 0) break
-                    remaining -= read
-                }
+    /** Reads the (small) response body, bounded, so the connection is released. Never logged. */
+    private fun readBody(connection: HttpURLConnection, status: Int): String? = runCatching {
+        (if (status in 200..299) connection.inputStream else connection.errorStream)?.use { stream ->
+            val out = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(1_024)
+            var remaining = MAX_RESPONSE_BYTES
+            while (remaining > 0) {
+                val read = stream.read(buffer, 0, minOf(buffer.size, remaining))
+                if (read < 0) break
+                out.write(buffer, 0, read)
+                remaining -= read
             }
+            out.toString(Charsets.UTF_8.name())
         }
-    }
+    }.getOrNull()
 
     companion object {
         const val TIMEOUT_MILLIS: Int = 10_000
