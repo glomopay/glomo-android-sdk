@@ -13,7 +13,7 @@ internal enum class SentrySendResult { SENT, RATE_LIMITED, REJECTED, FAILED }
 
 /**
  * Minimal client for Sentry's HTTP envelope endpoint. Deliberately not an SDK: it installs no
- * uncaught-exception handler, shutdown hook or session tracking, and only sends events GlomoPay code
+ * uncaught-exception handler, shutdown hook or session tracking, and only sends events Glomo code
  * hands it.
  *
  * Delivery runs on a single background thread behind a bounded queue. When the queue is full, or a

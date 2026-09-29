@@ -12,7 +12,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Reports failures GlomoPay code explicitly captures to GlomoPay's Sentry project over the envelope
+ * Reports failures Glomo code explicitly captures to Glomo's Sentry project over the envelope
  * endpoint, with no Sentry SDK on the classpath.
  *
  * Events are built from an allowlist: the fields below are the only ones ever sent. There is no

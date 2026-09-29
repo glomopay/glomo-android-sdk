@@ -233,7 +233,7 @@ Wi-Fi/cellular transport state, and IP-derived coarse location follow the approv
 mobile analytics v1.1 contract. See the [integration guide](docs/integration.md)
 for release-time token and privacy configuration.
 
-Analytics and internal SDK failures can be reported to GlomoPay's Sentry
+Analytics and internal SDK failures can be reported to Glomo's Sentry
 project through a small, dependency-free client for Sentry's HTTP envelope
 endpoint. The SDK does not depend on any Sentry artifact, so it cannot conflict
 with or alter the merchant app's own Sentry setup. It installs no crash, ANR,

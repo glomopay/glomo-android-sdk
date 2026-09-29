@@ -37,7 +37,7 @@ public API changes require a new major release.
   merchant's dependency graph or conflicts with the merchant's own Sentry version. No public API
   change. Reported fields, tags, context allowlist and breadcrumbs are unchanged.
 - SDK error events no longer carry the merchant application's ProGuard UUID from
-  `sentry-debug-meta.properties`; merchant mapping uploads are not used by GlomoPay's Sentry project.
+  `sentry-debug-meta.properties`; merchant mapping uploads are not used by Glomo's Sentry project.
 - Sentry issue grouping for SDK errors may change once, because the reported client name, SDK
   name and payload shape differ from the previous Sentry Java client.
 

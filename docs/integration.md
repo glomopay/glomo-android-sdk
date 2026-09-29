@@ -121,7 +121,7 @@ as null to distinguish "not checked" from a passing result.
 
 ## Sentry build configuration
 
-The release build can report explicitly captured SDK and analytics-delivery failures to GlomoPay's
+The release build can report explicitly captured SDK and analytics-delivery failures to Glomo's
 Sentry project through a small, dependency-free client for Sentry's HTTP envelope endpoint. Supply
 its DSN using the `SENTRY_DSN` Gradle property or environment
 variable:
@@ -135,7 +135,7 @@ behavior is unchanged. The ingestion endpoint is derived from the DSN at runtime
 or region is built into the SDK. Never commit the DSN to `gradle.properties`; inject it through release CI.
 
 The client installs no uncaught-exception handler, shutdown hook, ANR, NDK, session, tracing,
-profiling, or Session Replay collection. Only failures explicitly captured within the GlomoPay SDK
+profiling, or Session Replay collection. Only failures explicitly captured within the Glomo SDK
 boundary are sent, on a background thread behind a small bounded queue; events are dropped, never
 queued, when Sentry signals a rate limit. Events carry no user, request, server name, device
 context, module list, or thread dump, and the original exception message is replaced by the name
@@ -164,4 +164,4 @@ SDK error events carry the stack trace as it exists at runtime. In a merchant re
 R8 obfuscates SDK classes, frames arrive with obfuscated class and method names; source file names
 and line numbers are preserved by the consumer rules. The SDK does not read the merchant
 application's `sentry-debug-meta.properties` or attach a ProGuard UUID to its events, so merchants
-do not need to upload their mapping to GlomoPay or change their own Sentry setup.
+do not need to upload their mapping to Glomo or change their own Sentry setup.
