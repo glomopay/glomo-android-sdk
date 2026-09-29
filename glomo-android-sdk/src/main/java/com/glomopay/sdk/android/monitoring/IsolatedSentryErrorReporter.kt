@@ -56,33 +56,49 @@ internal class IsolatedSentryErrorReporter(
         }.onFailure { GlomoPayLogger.error("Unable to record SDK breadcrumb", it) }
     }
 
+    /**
+     * Snapshots what can change after this call (time, flow type, breadcrumbs, the caller's context
+     * map) and hands the client a builder. The event JSON is built only if it survives the drop
+     * checks, and on the delivery thread: callers include WebView and bridge callbacks on the main
+     * thread, and a rate-limited burst must not cost a full event build per discarded event.
+     */
     override fun capture(operation: String, error: Throwable, context: Map<String, Any?>) {
         runCatching {
-            val eventId = UUID.randomUUID().toString().replace("-", "")
-            client.send(eventId, buildEvent(eventId, operation, error, context))
+            val snapshot = CaptureSnapshot(
+                eventId = UUID.randomUUID().toString().replace("-", ""),
+                timestampMillis = clock(),
+                flowType = flowType,
+                breadcrumbs = synchronized(breadcrumbs) { breadcrumbs.toList() },
+                context = context.toMap(),
+            )
+            client.send(snapshot.eventId) { buildEvent(snapshot, operation, error) }
         }.onFailure { GlomoPayLogger.error("Unable to report SDK failure to Sentry", it) }
     }
 
-    private fun buildEvent(
-        eventId: String,
-        operation: String,
-        error: Throwable,
-        context: Map<String, Any?>,
-    ): JSONObject {
-        val currentFlowType = flowType
+    private class CaptureSnapshot(
+        val eventId: String,
+        val timestampMillis: Long,
+        val flowType: String,
+        val breadcrumbs: List<JSONObject>,
+        val context: Map<String, Any?>,
+    )
+
+    private fun buildEvent(snapshot: CaptureSnapshot, operation: String, error: Throwable): JSONObject {
         val tags = JSONObject()
             .put("sdk_source", SDK_NAME)
             .put("operation", AnalyticsSanitizer.text(operation, 80))
-            .put("flow_type", currentFlowType)
+            .put("flow_type", snapshot.flowType)
             .put("sdk_session_id", sessionId)
             .put("dev_mode", devMode.toString())
             .apply { orderIdTag?.let { put("order_id", it) } }
-        val extra = sanitizeContext(context).put("session_id", sessionId)
-        val crumbs = synchronized(breadcrumbs) { JSONArray(breadcrumbs.toList()) }
+        val extra = sanitizeContext(snapshot.context).put("session_id", sessionId)
+        val crumbs = JSONArray(snapshot.breadcrumbs)
+        val (exception, framesDropped) = exception(operation, error)
+        if (framesDropped > 0) extra.put("frames_truncated", framesDropped)
 
         return JSONObject()
-            .put("event_id", eventId)
-            .put("timestamp", SentryEnvelope.isoTimestamp(clock()))
+            .put("event_id", snapshot.eventId)
+            .put("timestamp", SentryEnvelope.isoTimestamp(snapshot.timestampMillis))
             .put("platform", "java")
             .put("level", "error")
             .put("logger", LOGGER)
@@ -92,7 +108,7 @@ internal class IsolatedSentryErrorReporter(
             .put("tags", tags)
             .put("extra", extra)
             .put("contexts", contexts.toJson())
-            .put("exception", JSONObject().put("values", JSONArray().put(exception(operation, error))))
+            .put("exception", JSONObject().put("values", JSONArray().put(exception)))
             .apply { if (crumbs.length() > 0) put("breadcrumbs", JSONObject().put("values", crumbs)) }
     }
 
@@ -109,11 +125,21 @@ internal class IsolatedSentryErrorReporter(
     /**
      * The exception is replaced by a synthetic one named after the operation, keeping only the
      * original stack trace. The original message and causes may carry customer data.
+     *
+     * A trace longer than [MAX_FRAMES] keeps both ends: the innermost frames locate the throw, and
+     * the outermost ones locate the SDK entry point, which for a merchant callback sits at the
+     * outer end. Returns the exception and the number of frames dropped from the middle.
      */
-    private fun exception(operation: String, error: Throwable): JSONObject {
+    private fun exception(operation: String, error: Throwable): Pair<JSONObject, Int> {
+        val trace = error.stackTrace
+        val kept = if (trace.size <= MAX_FRAMES) {
+            trace.asList()
+        } else {
+            trace.take(INNERMOST_FRAMES) + trace.takeLast(OUTERMOST_FRAMES)
+        }
         val frames = JSONArray()
         // Sentry orders frames oldest first; Java orders them innermost first.
-        error.stackTrace.take(MAX_FRAMES).asReversed().forEach { element ->
+        kept.asReversed().forEach { element ->
             frames.put(
                 JSONObject()
                     .put("module", element.className)
@@ -126,12 +152,13 @@ internal class IsolatedSentryErrorReporter(
                     .put("in_app", element.className.startsWith(IN_APP_PACKAGE)),
             )
         }
-        return JSONObject()
+        val exception = JSONObject()
             .put("type", "RuntimeException")
             .put("module", "java.lang")
             .put("value", "$operation failed (${error.javaClass.simpleName})")
             .put("mechanism", JSONObject().put("type", "generic").put("handled", true))
             .apply { if (frames.length() > 0) put("stacktrace", JSONObject().put("frames", frames)) }
+        return exception to (trace.size - kept.size)
     }
 
     private fun sanitizeContext(context: Map<String, Any?>): JSONObject = JSONObject().apply {
@@ -154,6 +181,8 @@ internal class IsolatedSentryErrorReporter(
         const val IN_APP_PACKAGE = "com.glomopay.sdk.android"
         const val MAX_BREADCRUMBS = 30
         const val MAX_FRAMES = 100
+        const val INNERMOST_FRAMES = 80
+        const val OUTERMOST_FRAMES = MAX_FRAMES - INNERMOST_FRAMES
         val ALLOWED_CONTEXT_KEYS = setOf(
             "event_name",
             "error_type",
@@ -186,7 +215,7 @@ internal object SdkErrorReporterFactory {
     ): SdkErrorReporter = runCatching {
         val dsn = SentryDsn.parse(environment.sentryDsn()) ?: return NoOpSdkErrorReporter
         val sdkVersion = environment.sdkVersion()
-        val bundle = SentryClientHolder.get(dsn, sdkVersion) { SentryContexts.collect(environment) }
+        val bundle = SentryClientHolder.get(dsn, sdkVersion, environment)
         IsolatedSentryErrorReporter(
             client = bundle.client,
             sdkVersion = sdkVersion,
@@ -202,21 +231,39 @@ internal object SdkErrorReporterFactory {
     }
 }
 
-private class SentryReporterBundle(val client: SentryEnvelopeClient, val contexts: SentryContexts)
+private class SentryReporterBundle(val client: SentryEnvelopeClient, @Volatile var contexts: SentryContexts)
 
 /**
  * One client per DSN for the process, so its delivery thread, queue bound, rate-limit state and
  * drop count are shared by every checkout rather than reset per session; Sentry counts limits per
- * project. Device and app contexts are collected once, alongside it.
+ * project.
+ *
+ * Contexts are cached alongside it. The Build fields never change, but the host-app version lookup
+ * can fail transiently (PackageManager unavailable early in startup, a RemoteException), so while
+ * either app field is still missing it is retried on each later factory call and filled in once it
+ * succeeds.
  */
 private object SentryClientHolder {
     private val bundles = ConcurrentHashMap<String, SentryReporterBundle>()
 
-    fun get(dsn: SentryDsn, sdkVersion: String, contexts: () -> SentryContexts): SentryReporterBundle =
-        bundles.computeIfAbsent(dsn.value) {
+    fun get(dsn: SentryDsn, sdkVersion: String, environment: ReporterEnvironment): SentryReporterBundle {
+        var created = false
+        val bundle = bundles.computeIfAbsent(dsn.value) {
+            created = true
             SentryReporterBundle(
                 client = SentryEnvelopeClient(dsn = dsn, clientName = "glomo-android-sdk/$sdkVersion"),
-                contexts = runCatching(contexts).getOrDefault(SentryContexts()),
+                contexts = runCatching { SentryContexts.collect(environment) }.getOrDefault(SentryContexts()),
             )
         }
+        val current = bundle.contexts
+        if (!created && (current.appVersion == null || current.appBuild == null)) {
+            runCatching { environment.hostAppVersion() }.getOrNull()?.let { app ->
+                bundle.contexts = current.copy(
+                    appVersion = app.versionName ?: current.appVersion,
+                    appBuild = app.versionCode ?: current.appBuild,
+                )
+            }
+        }
+        return bundle
+    }
 }

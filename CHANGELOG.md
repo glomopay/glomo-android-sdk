@@ -48,6 +48,9 @@ public API changes require a new major release.
 - SDK error envelopes are sent gzip-compressed. Events dropped by a rate limit, a full queue or a
   failed delivery are counted and reported on the next event that gets through as
   `extra.dropped_since_last_send`.
+- Stack traces longer than 100 frames keep the innermost 80 and outermost 20 frames, so the SDK
+  entry point survives on deep merchant-callback traces; `extra.frames_truncated` records the
+  number dropped.
 - SDK error events no longer carry the merchant application's ProGuard UUID from
   `sentry-debug-meta.properties`; merchant mapping uploads are not used by Glomo's Sentry project.
 - Sentry issue grouping for SDK errors may change once, because the reported client name, SDK

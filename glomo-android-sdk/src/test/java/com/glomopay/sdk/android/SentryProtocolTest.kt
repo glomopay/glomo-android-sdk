@@ -200,6 +200,27 @@ class SentryProtocolTest {
     }
 
     @Test
+    fun rate_limiter_falls_back_to_retry_after_when_the_rate_limit_header_parses_to_nothing() {
+        var now = 0L
+        val limiter = SentryRateLimiter { now }
+
+        limiter.update(429, headers("X-Sentry-Rate-Limits" to ":error:organization", "Retry-After" to "30"))
+
+        assertTrue(limiter.isLimited("error"))
+        now += 31_000
+        assertFalse(limiter.isLimited("error"))
+    }
+
+    @Test
+    fun rate_limiter_ignores_an_unparseable_rate_limit_header_on_a_success() {
+        val limiter = SentryRateLimiter { 0L }
+
+        limiter.update(200, headers("X-Sentry-Rate-Limits" to ":error:organization"))
+
+        assertFalse(limiter.isLimited("error"))
+    }
+
+    @Test
     fun rate_limiter_ignores_non_429_responses_without_headers() {
         val limiter = SentryRateLimiter { 0L }
 

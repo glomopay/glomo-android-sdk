@@ -15,7 +15,10 @@ import java.util.zip.GZIPOutputStream
 
 internal enum class SentrySendResult { SENT, RATE_LIMITED, REJECTED, FAILED }
 
-/** Outcome of one POST. [statusCode] and [responseBody] are null when no response arrived. */
+/**
+ * Outcome of one POST. [statusCode] is null when no response arrived. [responseBody] is read only
+ * when the caller asked for it with `captureBody`; the default path drains and discards it.
+ */
 internal data class SentryDelivery(
     val result: SentrySendResult,
     val statusCode: Int? = null,
@@ -43,15 +46,26 @@ internal class SentryEnvelopeClient(
     /** Events discarded since the last successful send and not yet reported to Sentry. */
     private val dropped = AtomicInteger()
 
-    /** Queues [event] for delivery. Never throws and never blocks on the network. */
-    fun send(eventId: String, event: JSONObject) {
+    /**
+     * Queues an event for delivery. [build] runs only if the event is not dropped first, and on the
+     * delivery thread, so a rate-limited or queue-full event costs nothing to discard. Never throws
+     * and never blocks on the network.
+     */
+    fun send(eventId: String, build: () -> JSONObject) {
         runCatching {
             if (rateLimiter.isLimited(SentryRateLimiter.ERROR_CATEGORY)) {
                 recordDrop("rate limited")
                 return
             }
             try {
-                executor.execute { deliverEvent(eventId, event) }
+                executor.execute {
+                    val event = runCatching(build).getOrElse {
+                        GlomoPayLogger.error("Unable to build SDK failure event", it)
+                        recordDrop("build failed")
+                        return@execute
+                    }
+                    deliverEvent(eventId, event)
+                }
             } catch (_: RejectedExecutionException) {
                 recordDrop("queue full")
             }
@@ -63,14 +77,14 @@ internal class SentryEnvelopeClient(
      * is subtracted only once Sentry accepts the event, so drops reported on a failed send are not
      * lost; the failed event itself is then counted too. Never throws.
      */
-    fun deliverEvent(eventId: String, event: JSONObject): SentryDelivery {
+    fun deliverEvent(eventId: String, event: JSONObject, captureBody: Boolean = false): SentryDelivery {
         val pending = dropped.get()
         val delivery = runCatching {
             if (pending > 0) {
                 val extra = event.optJSONObject("extra") ?: JSONObject().also { event.put("extra", it) }
                 extra.put(DROPPED_SINCE_LAST_SEND, pending)
             }
-            deliver(SentryEnvelope.event(eventId, event, dsn, clock()))
+            deliver(SentryEnvelope.event(eventId, event, dsn, clock()), captureBody)
         }.getOrElse {
             GlomoPayLogger.error("Unable to deliver SDK failure to Sentry", it)
             SentryDelivery(SentrySendResult.FAILED)
@@ -93,7 +107,7 @@ internal class SentryEnvelopeClient(
      * `length` headers stay the uncompressed byte counts; they describe the items, not the HTTP
      * body. Never throws.
      */
-    fun deliver(envelope: ByteArray): SentryDelivery {
+    fun deliver(envelope: ByteArray, captureBody: Boolean = false): SentryDelivery {
         if (rateLimiter.isLimited(SentryRateLimiter.ERROR_CATEGORY)) {
             GlomoPayLogger.log("Sentry event dropped: rate limited")
             return SentryDelivery(SentrySendResult.RATE_LIMITED)
@@ -118,7 +132,7 @@ internal class SentryEnvelopeClient(
             val status = connection.responseCode
             val response = connection
             rateLimiter.update(status) { name -> response.getHeaderField(name) }
-            val responseBody = readBody(connection, status)
+            val responseBody = readBody(connection, status, captureBody)
             val result = when {
                 status in 200..299 -> SentrySendResult.SENT
                 status == 429 -> SentrySendResult.RATE_LIMITED
@@ -137,19 +151,22 @@ internal class SentryEnvelopeClient(
     private fun gzip(bytes: ByteArray): ByteArray =
         ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write(bytes) } }.toByteArray()
 
-    /** Reads the (small) response body, bounded, so the connection is released. Never logged. */
-    private fun readBody(connection: HttpURLConnection, status: Int): String? = runCatching {
+    /**
+     * Drains the (small) response body, bounded, and closes it so the connection is released. The
+     * bytes are kept and returned only when [capture] is set. Never logged.
+     */
+    private fun readBody(connection: HttpURLConnection, status: Int, capture: Boolean): String? = runCatching {
         (if (status in 200..299) connection.inputStream else connection.errorStream)?.use { stream ->
-            val out = ByteArrayOutputStream()
+            val out = if (capture) ByteArrayOutputStream() else null
             val buffer = ByteArray(1_024)
             var remaining = MAX_RESPONSE_BYTES
             while (remaining > 0) {
                 val read = stream.read(buffer, 0, minOf(buffer.size, remaining))
                 if (read < 0) break
-                out.write(buffer, 0, read)
+                out?.write(buffer, 0, read)
                 remaining -= read
             }
-            out.toString(Charsets.UTF_8.name())
+            out?.toString(Charsets.UTF_8.name())
         }
     }.getOrNull()
 

@@ -139,7 +139,8 @@ profiling, or Session Replay collection. Only failures explicitly captured withi
 boundary are sent, gzip-compressed, on a background thread behind a small bounded queue; events are
 dropped, never queued, when Sentry signals a rate limit, the queue is full or delivery fails. The
 number of events dropped since the last successful send is reported on the next event that gets
-through (`extra.dropped_since_last_send`). Events carry no request, server name, module list, or
+through (`extra.dropped_since_last_send`). Stack traces longer than 100 frames keep the innermost
+80 and outermost 20 frames, and `extra.frames_truncated` records how many were dropped. Events carry no request, server name, module list, or
 thread dump, and the original exception message is replaced by the name of the failed operation.
 The SDK sends no IP address and no user id, email, username or name. Sentry derives approximate
 location (country, region, city) at ingest and the SDK does not store the device IP;

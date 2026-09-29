@@ -14,7 +14,8 @@ import com.glomopay.sdk.android.monitoring.SentryRateLimiter
 import com.glomopay.sdk.android.monitoring.SentrySendResult
 import org.json.JSONObject
 import org.junit.Assume.assumeTrue
-import java.net.ServerSocket
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
@@ -245,9 +246,8 @@ class IsolatedSentryErrorReporterTest {
     }
 
     @Test
-    fun an_unreachable_endpoint_counts_as_a_drop() {
-        val closedPort = ServerSocket(0).use { it.localPort }
-        val dsn = SentryDsn.parse("http://${LocalSentryServer.PUBLIC_KEY}@127.0.0.1:$closedPort/1")
+    fun an_unreachable_endpoint_counts_as_a_drop() = unreachablePort { port ->
+        val dsn = SentryDsn.parse("http://${LocalSentryServer.PUBLIC_KEY}@127.0.0.1:$port/1")
             ?: error("invalid test DSN")
         val client = SentryEnvelopeClient(dsn, "glomo-android-sdk/1.2.3", executor = Executor(Runnable::run))
 
@@ -305,6 +305,7 @@ class IsolatedSentryErrorReporterTest {
 
         val frames = exception.getJSONObject("stacktrace").getJSONArray("frames")
         assertEquals(error.stackTrace.size, frames.length())
+        assertFalse(request.event.getJSONObject("extra").has("frames_truncated"))
         // Sentry wants the innermost frame last.
         val innermost = frames.getJSONObject(frames.length() - 1)
         assertEquals(error.stackTrace[0].className, innermost.getString("module"))
@@ -400,24 +401,25 @@ class IsolatedSentryErrorReporterTest {
     }
 
     @Test
-    fun an_unreachable_endpoint_never_throws() {
-        val closedPort = ServerSocket(0).use { it.localPort }
-        val dsn = "http://${LocalSentryServer.PUBLIC_KEY}@127.0.0.1:$closedPort/1"
-
-        reporter(dsn = dsn).capture("mixpanel_delivery", IllegalStateException("boom"))
-    }
-
-    @Test
     fun a_server_that_never_answers_is_abandoned_at_the_timeout() {
         server.hold = CountDownLatch(1)
-        val reporter = reporter(timeoutMillis = 300)
+        val dsn = SentryDsn.parse(server.dsn) ?: error("invalid test DSN")
+        val client = SentryEnvelopeClient(
+            dsn = dsn,
+            clientName = "glomo-android-sdk/1.2.3",
+            executor = Executor(Runnable::run),
+            timeoutMillis = 300,
+        )
 
         val started = System.nanoTime()
-        reporter.capture("mixpanel_delivery", IllegalStateException("boom"))
+        val delivery = client.deliver(SentryEnvelope.event("0".repeat(32), JSONObject(), dsn, 0L))
         val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
 
+        // The request reached the server, so this is the read timeout, not a refused connection.
         server.takeRequest()
-        assertTrue(elapsedMillis < 5_000, "capture took ${elapsedMillis}ms")
+        assertEquals(SentrySendResult.FAILED, delivery.result)
+        assertNull(delivery.statusCode)
+        assertTrue(elapsedMillis < 2_000, "deliver took ${elapsedMillis}ms against a 300ms timeout")
     }
 
     @Test
@@ -426,8 +428,135 @@ class IsolatedSentryErrorReporterTest {
             override fun getStackTrace(): Array<StackTraceElement> = throw UnsupportedOperationException()
         }
 
-        reporter().capture("mixpanel_delivery", hostile)
-        reporter().addBreadcrumb("analytics", "ok", mapOf("event_name" to Double.NaN))
+        val reporter = reporter()
+        reporter.capture("mixpanel_delivery", hostile)
+        reporter.addBreadcrumb("analytics", "ok", mapOf("event_name" to Double.NaN))
+        reporter.capture("next", IllegalStateException("boom"))
+
+        // The unbuildable event is dropped and counted; the next one goes out and reports it.
+        val request = server.takeRequest()
+        assertEquals("next", request.event.getJSONObject("tags").getString("operation"))
+        assertEquals(1, request.event.getJSONObject("extra").getInt("dropped_since_last_send"))
+        assertNull(server.requests.poll(300, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun a_rate_limited_capture_builds_nothing_but_still_counts_the_drop() {
+        var now = 1_000_000L
+        val limiter = SentryRateLimiter { now }.apply {
+            update(429) { if (it.equals("Retry-After", ignoreCase = true)) "60" else null }
+        }
+        var stackTraceReads = 0
+        val watched = object : IllegalStateException("boom") {
+            override fun getStackTrace(): Array<StackTraceElement> {
+                stackTraceReads++
+                return super.getStackTrace()
+            }
+        }
+        val reporter = reporter(rateLimiter = limiter)
+
+        reporter.capture("dropped", watched)
+
+        // Building the event is the only thing that reads the stack trace.
+        assertEquals(0, stackTraceReads, "the event was built although it was dropped")
+        assertNull(server.requests.poll(300, TimeUnit.MILLISECONDS))
+        now += 61_000
+        reporter.capture("after_window", IllegalStateException("boom"))
+        assertEquals(1, server.takeRequest().event.getJSONObject("extra").getInt("dropped_since_last_send"))
+    }
+
+    @Test
+    fun a_queued_event_reflects_the_moment_of_capture_although_it_is_built_later() {
+        server.hold = CountDownLatch(1)
+        val reporter = factoryReporter(server.dsn)
+        reporter.capture("in_flight", IllegalStateException("boom"))
+        server.takeRequest()
+
+        reporter.addBreadcrumb("analytics", "before_capture")
+        reporter.capture("queued", IllegalStateException("boom"), mapOf("event_name" to "at_capture"))
+        // Everything below happens after capture() returned but before the queued event is built.
+        reporter.addBreadcrumb("analytics", "after_capture")
+        reporter.updateFlowType("standard")
+        server.hold?.countDown()
+
+        val event = server.takeRequest().event
+        assertEquals("queued", event.getJSONObject("tags").getString("operation"))
+        assertEquals("auto", event.getJSONObject("tags").getString("flow_type"))
+        assertEquals("at_capture", event.getJSONObject("extra").getString("event_name"))
+        val crumbs = event.getJSONObject("breadcrumbs").getJSONArray("values")
+        assertEquals(listOf("before_capture"), (0 until crumbs.length()).map { crumbs.getJSONObject(it).getString("message") })
+    }
+
+    @Test
+    fun event_timestamp_is_the_capture_instant_and_sent_at_the_later_send_instant() {
+        var now = 1_787_659_200_000L // 2026-08-25T12:00:00Z
+        val queued = ArrayDeque<Runnable>()
+        val reporter = IsolatedSentryErrorReporter(
+            client = SentryEnvelopeClient(
+                dsn = SentryDsn.parse(server.dsn) ?: error("invalid test DSN"),
+                clientName = "glomo-android-sdk/1.2.3",
+                executor = Executor { queued.addLast(it) },
+                clock = { now },
+            ),
+            sdkVersion = "1.2.3",
+            sessionId = "session-uuid",
+            initialFlowType = "auto",
+            devMode = false,
+            clock = { now },
+        )
+
+        reporter.capture("mixpanel_delivery", IllegalStateException("boom"))
+        now += 7_000
+        queued.removeFirst().run()
+
+        // Relay corrects device clock skew from the gap between the two, so they must differ.
+        val request = server.takeRequest()
+        assertEquals("2026-08-25T12:00:00.000Z", request.event.getString("timestamp"))
+        assertEquals("2026-08-25T12:00:07.000Z", request.envelopeHeader.getString("sent_at"))
+    }
+
+    @Test
+    fun a_deep_trace_keeps_the_innermost_eighty_and_outermost_twenty_frames() {
+        val trace = Array(150) { depth ->
+            StackTraceElement("com.glomopay.sdk.android.Deep", "depth$depth", "Deep.kt", depth + 1)
+        }
+        val error = IllegalStateException("boom").apply { stackTrace = trace }
+
+        reporter().capture("merchant_callback", error)
+
+        val event = server.takeRequest().event
+        val frames = event.getJSONObject("exception").getJSONArray("values").getJSONObject(0)
+            .getJSONObject("stacktrace").getJSONArray("frames")
+        val functions = (0 until frames.length()).map { frames.getJSONObject(it).getString("function") }
+        // Oldest first: outermost 20 (depth149..depth130), then innermost 80 (depth79..depth0).
+        assertEquals((149 downTo 130).map { "depth$it" } + (79 downTo 0).map { "depth$it" }, functions)
+        assertEquals(50, event.getJSONObject("extra").getInt("frames_truncated"))
+    }
+
+    @Test
+    fun a_response_body_is_read_into_memory_only_when_asked_for() {
+        val dsn = SentryDsn.parse(server.dsn) ?: error("invalid test DSN")
+        val client = SentryEnvelopeClient(dsn, "glomo-android-sdk/1.2.3", executor = Executor(Runnable::run))
+        val envelope = SentryEnvelope.event("0".repeat(32), JSONObject(), dsn, 0L)
+
+        val default = client.deliver(envelope)
+        val captured = client.deliver(envelope, captureBody = true)
+
+        assertEquals(SentrySendResult.SENT, default.result)
+        assertNull(default.responseBody)
+        assertEquals("accepted", JSONObject(captured.responseBody.orEmpty()).getString("id"))
+    }
+
+    @Test
+    fun a_429_whose_rate_limit_header_parses_to_nothing_still_backs_off() {
+        val reporter = reporter()
+        server.respondNext(429, mapOf("X-Sentry-Rate-Limits" to ":error:organization"))
+
+        reporter.capture("first", IllegalStateException("boom"))
+        server.takeRequest()
+        reporter.capture("second", IllegalStateException("boom"))
+
+        assertNull(server.requests.poll(300, TimeUnit.MILLISECONDS), "sent straight into an active 429")
     }
 
     @Test
@@ -469,6 +598,24 @@ class IsolatedSentryErrorReporterTest {
             mapOf<String, Any?>("type" to "app", "app_version" to "3.2.1", "app_build" to "302010"),
             request.event.getJSONObject("contexts").getJSONObject("app").toMap(),
         )
+    }
+
+    @Test
+    fun a_failed_package_lookup_is_retried_until_app_context_resolves() {
+        var lookups = 0
+        val environment = TestEnvironment(dsn = { server.dsn }, app = {
+            lookups++
+            if (lookups == 1) throw IllegalStateException("package manager not ready")
+            HostAppVersion("3.2.1", "302010")
+        })
+
+        repeat(3) { factoryReporter(environment).capture("checkout_$it", IllegalStateException("boom")) }
+
+        val apps = List(3) { server.takeRequest().event.getJSONObject("contexts").optJSONObject("app")?.toMap() }
+        val resolved = mapOf<String, Any?>("type" to "app", "app_version" to "3.2.1", "app_build" to "302010")
+        assertEquals(listOf(null, resolved, resolved), apps)
+        // Once resolved it is cached again, not looked up per checkout.
+        assertEquals(2, lookups)
     }
 
     @Test
@@ -544,7 +691,14 @@ class IsolatedSentryErrorReporterTest {
             devMode = true,
             orderId = "order_delivery_test_$sentAt",
             contexts = SentryContexts.fromBuild(appVersion = null, appBuild = null),
-        ).capture("delivery_test", IllegalStateException("delivery test"))
+        ).capture(
+            "delivery_test",
+            // Deeper than the frame cap on purpose, so the stored event shows frames_truncated.
+            IllegalStateException("delivery test").apply {
+                stackTrace = Array(120) { StackTraceElement("com.glomopay.sdk.android.DeliveryTest", "depth$it", "DeliveryTest.kt", it + 1) } +
+                    stackTrace
+            },
+        )
         val event = server.takeRequest().event
         event.getJSONObject("tags").put("delivery_test", "true")
         event.put("message", JSONObject().put("formatted", "GlomoPay SDK delivery test - safe to resolve"))
@@ -559,10 +713,10 @@ class IsolatedSentryErrorReporterTest {
             executor = Executor(Runnable::run),
             rateLimiter = limiter,
         )
-        repeat(2) { live.send("f".repeat(32), JSONObject()) }
+        repeat(2) { live.send("f".repeat(32)) { JSONObject() } }
         limiterNow += 2_000
 
-        val delivery = live.deliverEvent(eventId, event)
+        val delivery = live.deliverEvent(eventId, event, captureBody = true)
 
         val ist = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'IST'", java.util.Locale.US)
             .apply { timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata") }
@@ -628,6 +782,17 @@ class IsolatedSentryErrorReporterTest {
     }
 
     private fun JSONObject.toMap(): Map<String, Any?> = keySet().associateWith { get(it) }
+
+    /**
+     * A loopback port that stays reserved for the whole block but refuses connections: bound and
+     * never listening. Releasing a port before use lets another process take it in between.
+     */
+    private fun unreachablePort(block: (Int) -> Unit) {
+        Socket().use { socket ->
+            socket.bind(InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0))
+            block(socket.localPort)
+        }
+    }
 
     private companion object {
         val ISO_UTC = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z""")

@@ -24,10 +24,8 @@ internal class SentryRateLimiter(private val clock: () -> Long = System::current
     @Synchronized
     fun update(statusCode: Int, header: (String) -> String?) {
         val limits = header("X-Sentry-Rate-Limits")
-        if (!limits.isNullOrBlank()) {
-            applyLimits(limits)
-            return
-        }
+        // A header that parses to no quota at all must not suppress the 429 back-off below.
+        if (!limits.isNullOrBlank() && applyLimits(limits) > 0) return
         if (statusCode == 429) block(ALL_CATEGORIES, retryAfterMillis(header("Retry-After")))
     }
 
@@ -43,8 +41,12 @@ internal class SentryRateLimiter(private val clock: () -> Long = System::current
         if (until > (blockedUntil[key] ?: Long.MIN_VALUE)) blockedUntil[key] = until
     }
 
-    /** Parses `retry_after:categories:scope:reason:namespaces`; empty categories means all. */
-    private fun applyLimits(header: String) {
+    /**
+     * Parses `retry_after:categories:scope:reason:namespaces`; empty categories means all. Returns
+     * the number of quotas applied, 0 when none parsed.
+     */
+    private fun applyLimits(header: String): Int {
+        var applied = 0
         header.split(',').forEach { quota ->
             val parts = quota.split(':')
             val seconds = parseSeconds(parts.first()) ?: return@forEach
@@ -57,7 +59,9 @@ internal class SentryRateLimiter(private val clock: () -> Long = System::current
                     .filter { it.isNotEmpty() }
                     .forEach { block(it, seconds * 1_000) }
             }
+            applied++
         }
+        return applied
     }
 
     private fun retryAfterMillis(value: String?): Long {
