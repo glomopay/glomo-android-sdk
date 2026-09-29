@@ -82,13 +82,23 @@ internal class IsolatedSentryErrorReporter(
             .put("logger", LOGGER)
             .put("release", "$SDK_NAME@$sdkVersion")
             .put("environment", SDK_NAME)
-            .put("sdk", JSONObject().put("name", SDK_NAME).put("version", sdkVersion))
+            .put("sdk", sdk())
             .put("tags", tags)
             .put("extra", extra)
             .put("contexts", contexts.toJson())
             .put("exception", JSONObject().put("values", JSONArray().put(exception(operation, error))))
             .apply { if (crumbs.length() > 0) put("breadcrumbs", JSONObject().put("values", crumbs)) }
     }
+
+    /**
+     * `infer_ip: never` stops Relay from taking the sender's connection IP. Without it Relay
+     * geolocates that IP at ingest and stores `user.geo` (country and city) even though the event
+     * has no user and no ip_address.
+     */
+    private fun sdk(): JSONObject = JSONObject()
+        .put("name", SDK_NAME)
+        .put("version", sdkVersion)
+        .put("settings", JSONObject().put("infer_ip", "never"))
 
     /**
      * The exception is replaced by a synthetic one named after the operation, keeping only the

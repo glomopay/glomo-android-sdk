@@ -94,6 +94,24 @@ class IsolatedSentryErrorReporterTest {
     }
 
     @Test
+    fun relay_is_told_never_to_infer_the_ip_and_no_user_is_sent() {
+        reporter().capture("mixpanel_delivery", IllegalStateException("boom"))
+
+        val request = server.takeRequest()
+        val sdk = request.event.getJSONObject("sdk")
+        assertEquals(
+            mapOf<String, Any?>("name" to "glomo-android-sdk", "version" to "1.2.3"),
+            (sdk.keySet() - "settings").associateWith { sdk.get(it) },
+        )
+        assertEquals(mapOf<String, Any?>("infer_ip" to "never"), sdk.getJSONObject("settings").toMap())
+        assertFalse(request.event.has("user"))
+        val wire = String(request.body, Charsets.UTF_8)
+        listOf("\"user\"", "ip_address", "{{auto}}", "\"geo\"").forEach {
+            assertFalse(wire.contains(it), "<$it> reached the wire")
+        }
+    }
+
+    @Test
     fun contexts_carry_only_the_approved_os_device_and_app_fields() {
         val contexts = SentryContexts(
             osVersion = "14",
