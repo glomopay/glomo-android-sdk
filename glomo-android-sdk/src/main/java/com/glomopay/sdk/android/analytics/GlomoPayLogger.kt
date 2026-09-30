@@ -5,7 +5,7 @@ import android.util.Log
 /** SDK logger matching Flutter's devMode logging gate. */
 internal object GlomoPayLogger {
     private const val TAG = "GlomoPay"
-    @Volatile var devMode: Boolean = false
+    private const val devMode = com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD
 
     fun log(message: String) {
         if (devMode) Log.d(TAG, message)

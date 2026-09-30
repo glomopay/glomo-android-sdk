@@ -33,6 +33,7 @@ internal object AndroidAnalyticsProperties {
             "\$app_namespace" to context.packageName,
             "\$app_build_number" to packageInfo?.let { PackageInfoCompat.getLongVersionCode(it).toString() },
             "\$app_name" to appName,
+            "merchant_target_sdk_version" to context.applicationInfo.targetSdkVersion,
             "\$locale" to Locale.getDefault().toLanguageTag(),
             "\$lib_version" to MIXPANEL_REST_API_VERSION,
             "mp_lib" to "glomo-android-sdk",

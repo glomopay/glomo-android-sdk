@@ -4,7 +4,7 @@ import com.glomopay.sdk.android.ConfigManager
 import com.glomopay.sdk.android.GlomoPayConfig
 
 internal object CompliancePolicy {
-    /** Matches Flutter controller: strict SafeDevice check only for live/non-dev sessions. */
-    fun requiresStrictCheck(config: GlomoPayConfig): Boolean =
-        ConfigManager.getMode(config.publicKey) == "live" && !config.devMode
+    /** Only an SDK-owner internal build can bypass live-device enforcement. */
+    fun requiresStrictCheck(config: GlomoPayConfig, internalBuild: Boolean = com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD): Boolean =
+        ConfigManager.getMode(config.publicKey) == "live" && !internalBuild
 }

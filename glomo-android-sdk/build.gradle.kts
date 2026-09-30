@@ -16,6 +16,12 @@ val mixpanelToken = providers.gradleProperty("MIXPANEL_TOKEN")
 val sentryDsn = providers.gradleProperty("SENTRY_DSN")
     .orElse(providers.environmentVariable("SENTRY_DSN"))
     .orElse("")
+val nodeBinary = providers.gradleProperty("NODE_BINARY")
+    .orElse(providers.environmentVariable("NODE_BINARY"))
+    .orElse("node")
+val nodeVersion = providers.exec {
+    commandLine(nodeBinary.get(), "--version")
+}.standardOutput.asText
 
 android {
     namespace = "com.glomopay.sdk.android"
@@ -23,6 +29,13 @@ android {
 
     defaultConfig {
         minSdk = 24
+        aarMetadata {
+            minCompileSdk = 35
+        }
+        // Baked into the AAR by the SDK owner. Only exact "true" enables it.
+        buildConfigField("boolean", "GLOMO_INTERNAL_BUILD", providers.gradleProperty("GLOMO_INTERNAL_BUILD")
+            .orElse(providers.environmentVariable("GLOMO_INTERNAL_BUILD"))
+            .map { (it == "true").toString() }.orElse("false").get())
         consumerProguardFiles("consumer-rules.pro")
         resValue("string", "glomopay_sdk_version", project.version.toString())
         resValue("string", "glomopay_mixpanel_token", mixpanelToken.get())
@@ -44,13 +57,44 @@ android {
 
 }
 
+val bridgeContractTest by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Runs the JavaScript bridge contract against the scripts embedded in Kotlin."
+    workingDir(rootProject.projectDir)
+    commandLine(nodeBinary.get(), file("src/test/js/bridge-contract.cjs").absolutePath)
+    inputs.files(
+        file("src/test/js/bridge-contract.cjs"),
+        file("src/main/java/com/glomopay/sdk/android/bridge/GlomoPayInjectionScripts.kt"),
+    )
+    doFirst {
+        try {
+            logger.lifecycle(nodeVersion.get().trim())
+        } catch (error: Exception) {
+            throw GradleException(
+                "bridgeContractTest requires Node.js. Install node on PATH or set NODE_BINARY " +
+                    "or -PNODE_BINARY to the node executable.",
+                error,
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(bridgeContractTest)
+}
+
+// Internal builds have distinct coordinates and cannot replace the merchant artifact.
+if (providers.gradleProperty("GLOMO_INTERNAL_BUILD")
+        .orElse(providers.environmentVariable("GLOMO_INTERNAL_BUILD")).orNull == "true") {
+    version = "$version-internal"
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("com.scottyab:rootbeer-lib:0.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("io.sentry:sentry:8.50.1")
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.0.21")
     testImplementation("org.json:json:20240303")

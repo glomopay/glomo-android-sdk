@@ -27,6 +27,7 @@ current implementation detail. See [CONTRIBUTING.md](CONTRIBUTING.md).
 |---|---|
 | Minimum Android version | Android 7.0 / API 24 |
 | Compile SDK | 35 |
+| Tested merchant `targetSdk` range | 34–36 |
 | Kotlin | 2.0.21 or compatible |
 | Java/JVM target | 17 |
 | Kotlin/Java package | `com.glomopay.sdk.android` |
@@ -42,6 +43,19 @@ tooling comfortable, and matches the modern React Native ecosystem floor.
 Merchants currently using `minSdk 21` must raise their application's minimum SDK
 before adopting this library. Coordinate that change with
 `developer@glomopay.com` before planning the integration.
+
+The merchant application's `targetSdk` is separate from the library's `minSdk`.
+The supported test range is 34–36: 34 is the pre edge-to-edge control, while 35
+and 36 cover current platform behavior. The AAR declares `minCompileSdk 35`.
+Predictive Back uses Android's runtime callback on API 33+ and the legacy callback
+below it; the target range is therefore a release test policy rather than a code
+branch. The sample app defaults to 36 and can be built for each supported target:
+
+```bash
+./gradlew :sample-app:assembleDebug -PMERCHANT_TARGET_SDK=34
+./gradlew :sample-app:assembleDebug -PMERCHANT_TARGET_SDK=35
+./gradlew :sample-app:assembleDebug -PMERCHANT_TARGET_SDK=36
+```
 
 ## Installation
 
@@ -76,7 +90,6 @@ class CheckoutActivity : Activity(), GlomoPayListener {
         val config = GlomoPayConfig(
             publicKey = "live_public_key",
             orderId = orderId,
-            devMode = false,
         )
 
         GlomoPaySdk.startCheckout(this, config, this, orderType = "auto")
@@ -112,17 +125,51 @@ val config = GlomoPayConfig(
     publicKey = "test_public_key",
     orderId = "order_example",
     server = null,
-    devMode = true,
 )
 ```
 
 Guidelines:
 
-- Use `test_` or `mock_` keys with `devMode = true` for development and QA.
+- Use `test_` or `mock_` keys for development and QA.
 - Use live keys only in production and on compliant devices.
 - Never log public keys, identifiers, payment signatures, or raw payment data
   in production.
 - Verify successful payments server-side before delivering goods or services.
+
+`startCheckout` returns a `GlomoPayCheckoutHandle`. Retain it to dismiss that
+session with `handle.close()`; the listener receives `PROGRAMMATIC` once.
+Calls after completion do nothing, and closing one handle does not close another session.
+
+There is no merchant-settable `devMode`. SDK owners can build a distinct
+`-internal` artifact with `-PGLOMO_INTERNAL_BUILD=true`; any other value defaults
+to false. The value is baked into the AAR, and analytics still reports `dev_mode`
+with either value. Internal artifacts must not be distributed to merchants.
+Remote WebView debugging is controlled by the embedding application.
+
+The checkout Activity declares `configChanges` for UI mode, locale, layout
+direction, font scale, density, keyboard and size changes, so a dark-mode toggle,
+locale change or multi-window resize does not restart a live payment.
+
+After Activity recreation, checkout ends instead of replaying an interrupted
+payment page. If the process is still alive, the listener receives an SDK error;
+after process death, the lost listener cannot be recovered and no payment page
+is opened. Start a new checkout from the merchant app after checking order status.
+Listeners are retained for the active session and released on completion or launch failure.
+
+`onUserJourneyCompleted` is required and has no default implementation, so every
+integration must add it. It reports a non-payment journey - today, submitted
+bank-transfer details - carrying `GlomoPayUserJourneyPayload`, which has no
+`paymentId` and no `signature` because no money has moved. Reconcile it
+server-side against the order; never fulfil an order from it. This used to arrive
+through `onPaymentSuccess`, which told hosts a payment had completed when it had not.
+
+`onPaymentFailure` is delivered on the checkout's failure event itself and does not
+require a `signature`, which a failure payload has never carried.
+
+`onEvent` is a deprecated diagnostic channel. SDK events use the
+`glomo_android_sdk.` prefix; page events retain their original names. Use the
+typed payment and error callbacks for integration logic. Unused `CheckoutStatus`
+was removed, and `GlomoPayResult` is now internal.
 
 ## WebView and File Upload Behavior
 
@@ -131,12 +178,36 @@ The SDK provides:
 - Native main checkout WebView and a separate secure bank/3DS flow overlay.
 - JavaScript bridge events for payment, redirect, navigation, and errors.
 - Android native file chooser support for hosted bank upload fields, including
-  PDF/document uploads.
+  PDF/document uploads, with a Camera / Gallery / Files choice. Camera captures are
+  capped at 2048px and JPEG quality 85 to stay under the bank's upload limit; do not
+  raise those caps without re-confirming with the bank. If the user refuses the camera
+  permission, the upload is cancelled, `onUserRefusedDevicePermissions` is delivered,
+  and checkout stays open. `accept` only decides which picker opens - it never restricts
+  what the user may choose, because the bank re-validates every upload.
 - Loading, connection-error, retry, and back-navigation handling.
 - Root, debugger, and developer-mode compliance checks for live sessions.
 
 The hosted checkout remains responsible for payment UI, bank authentication,
 3DS, and validation of uploaded documents.
+
+Each session creates fresh WebViews. Startup does not erase shared cookies or
+origin storage, which may also belong to merchant WebViews or another checkout.
+This is a deliberate divergence from the Flutter SDK, which clears WebView state
+at init as well as at teardown: on Android, `CookieManager` and `WebStorage` are
+process-wide with no per-WebView scope, so clearing at checkout start would erase
+the embedding app's own WebView sessions mid-use. A fresh `WebView` already starts
+with empty navigation and form state. At teardown, the SDK clears WebView-local
+history, form data and SSL preferences. It deliberately does not clear the
+process-wide resource cache. Revisit only with a scoped-storage API or an explicit
+product decision that the SDK may clear app-wide state.
+File URL access and mixed content are disabled explicitly. Bank pages use the
+same forced viewport behavior as the Flutter Android flow; bank/device validation
+is required before release.
+
+A 15-second render timeout is advisory and offers Retry/Cancel. A later bridge
+handshake dismisses that surface; Retry starts a new timeout budget. Connection
+errors marked `shouldAutoClose` close checkout with `CONNECTION_ERROR`. Structured
+page dependency failures remain diagnostic events and do not draw native error UI.
 
 ## Testing
 
@@ -162,11 +233,14 @@ Wi-Fi/cellular transport state, and IP-derived coarse location follow the approv
 mobile analytics v1.1 contract. See the [integration guide](docs/integration.md)
 for release-time token and privacy configuration.
 
-Analytics and internal SDK failures can be reported through an isolated,
-SDK-owned Sentry client. It does not initialize or alter the merchant app's
-global Sentry client. App-wide crash/ANR capture, NDK, Session Replay, default
-PII, and performance tracing are disabled; only explicitly captured SDK errors
-are reported.
+Analytics and internal SDK failures can be reported to Glomo's Sentry
+project through a small, dependency-free client for Sentry's HTTP envelope
+endpoint. The SDK does not depend on any Sentry artifact, so it cannot conflict
+with or alter the merchant app's own Sentry setup. It installs no crash, ANR,
+NDK, session or tracing hooks; only explicitly captured SDK errors are
+reported. Events carry no user identifiers and no IP address; Sentry derives
+an approximate location (country, region, city) at ingest but does not store
+the device IP.
 
 ## ProGuard and R8
 
@@ -174,8 +248,8 @@ The published AAR includes consumer rules that preserve the WebView JavaScript
 bridge and stack-trace source positions. R8 shrinking, optimization, and
 obfuscation can remain enabled in the merchant app. The final mapping file is
 generated by the merchant application build, not by the SDK AAR build; see the
-[integration guide](docs/integration.md#proguardr8-and-sentry-mappings) for the
-mapping upload boundary.
+[integration guide](docs/integration.md#proguardr8-and-sentry-mappings) for how
+this affects SDK error reports.
 
 ## Documentation
 

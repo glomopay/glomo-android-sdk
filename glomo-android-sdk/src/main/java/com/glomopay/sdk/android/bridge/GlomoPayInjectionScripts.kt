@@ -4,7 +4,115 @@ package com.glomopay.sdk.android.bridge
 internal object GlomoPayInjectionScripts {
     fun main(bridgeName: String = "GlomoPayBridge"): String = build(bridgeName)
 
-    fun flow(bridgeName: String = "GlomoPayFlowBridge"): String = build(bridgeName)
+    fun flow(bridgeName: String = "GlomoPayFlowBridge"): String = build(bridgeName) + """
+        (function() {
+          if (!window.opener) {
+            window.opener = { postMessage: function(data) {
+              try {
+                if (typeof data === 'string') data = JSON.parse(data);
+                window.$bridgeName.postMessage(JSON.stringify({type:'message',data:data}));
+              } catch(e) {}
+            }};
+          }
+        })();
+    """.trimIndent()
+
+    fun bankViewportFit(): String = """
+    (function() {
+      if (window.__glomoViewportFitFixApplied__) return;
+      window.__glomoViewportFitFixApplied__ = true;
+
+      function ensureViewportMeta() {
+        var head = document.head || document.getElementsByTagName('head')[0];
+        if (!head) return;
+
+        var meta = document.querySelector('meta[name="viewport"]');
+        if (!meta) {
+          meta = document.createElement('meta');
+          meta.name = 'viewport';
+          head.appendChild(meta);
+        }
+
+        meta.setAttribute(
+          'content',
+          'width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover'
+        );
+      }
+
+      function normalizeZoom() {
+        try { document.documentElement.style.zoom = '1'; } catch (e) {}
+        try { document.body.style.zoom = '1'; } catch (e) {}
+      }
+
+      var resetTimer = null;
+      function scheduleNormalize() {
+        if (resetTimer) clearTimeout(resetTimer);
+        resetTimer = setTimeout(function() {
+          ensureViewportMeta();
+          normalizeZoom();
+        }, 50);
+      }
+
+      ensureViewportMeta();
+      normalizeZoom();
+
+      window.addEventListener('load', function() {
+        scheduleNormalize();
+      });
+
+      // Deliberately unguarded, unlike the visualViewport listener below.
+      //
+      // A width-only guard was tried here and reverted.
+      // Two reasons. First, the
+      // premise was unverified: the justification was that WKWebView fires
+      // window.resize when the keyboard opens, but the software keyboard shrinks
+      // the VISUAL viewport, not the layout viewport - which is why
+      // iosKeyboardLayoutFix can capture window.innerHeight once and treat it as
+      // a fixed baseline. If that holds, the guard never fires on the keyboard
+      // path and fixes nothing. Second, this script is injected on the flow
+      // WebView without a platform check, so any change here lands on Android
+      // bank pages too, and that is only verifiable by completing real payments
+      // across every bank and order type.
+      //
+      // What it costs to leave unguarded: keyboard open/close re-runs
+      // scheduleNormalize, which rewrites the page's own viewport meta and
+      // writes documentElement/body zoom. That is also the only thing that
+      // re-asserts the forced viewport after a bank page overwrites its own meta
+      // mid-flow, so the unguarded version is risky for SPA bank flows.
+      window.addEventListener('resize', function() {
+        scheduleNormalize();
+      });
+
+      if (window.visualViewport) {
+        var lastVVWidth = window.visualViewport.width;
+        window.visualViewport.addEventListener('resize', function() {
+          var newWidth = window.visualViewport.width;
+          if (Math.abs(newWidth - lastVVWidth) > 1) {
+            lastVVWidth = newWidth;
+            scheduleNormalize();
+          }
+        });
+      }
+
+      document.addEventListener('orientationchange', function() {
+        scheduleNormalize();
+      }, true);
+    })();
+      """.trimIndent()
+
+    fun carouselFallback(): String = """
+        (function() {
+          if (window.__glomoCarouselPollScheduled__) return;
+          window.__glomoCarouselPollScheduled__ = true;
+          setTimeout(function() {
+            if (window.__glomoCarouselStateSent__) return;
+            var b = document.body;
+            var text = b && b.innerText ? b.innerText.trim() : '';
+            var count = b ? b.querySelectorAll('*').length : 0;
+            window.postMessage({event:'lrs.has_education_steps',hasContent:text.length>100 || count>10}, '*');
+          }, 3000);
+        })();
+    """.trimIndent()
 
     fun carousel(bridgeName: String = "GlomoCarousel"): String = """
         (function() {
@@ -13,8 +121,9 @@ internal object GlomoPayInjectionScripts {
             try {
               var parsed = typeof data === 'string' ? JSON.parse(data) : data;
               if (!parsed) return;
-              if (parsed.type !== 'lrs.has_education_steps' || parsed.value !== true) return;
-              var payload = JSON.stringify({type:parsed.type,value:true});
+              if (parsed.event !== 'lrs.has_education_steps' || typeof parsed.hasContent !== 'boolean') return;
+              window.__glomoCarouselStateSent__ = true;
+              var payload = JSON.stringify({event:parsed.event,hasContent:parsed.hasContent});
               if (window.$bridgeName) window.$bridgeName.postMessage(payload);
               else window[pendingKey] = payload;
             } catch(e) {}
@@ -136,6 +245,21 @@ internal object GlomoPayInjectionScripts {
                 capture:t.getAttribute('capture')||'',inputId:t.id||'',inputName:t.name||''}));
             }
           }, true);
+          var sendBridgeReady = function() {
+            if (window.__glomoBridgeReadySent__) return;
+            try {
+              if (window.top !== window) return;
+            } catch (e) {
+              return;
+            }
+            window.__glomoBridgeReadySent__ = true;
+            bridge(JSON.stringify({type:'bridge.ready'}));
+          };
+          if (document.readyState === 'complete') {
+            sendBridgeReady();
+          } else {
+            window.addEventListener('load', sendBridgeReady, {once:true});
+          }
         })();
     """.trimIndent()
 }

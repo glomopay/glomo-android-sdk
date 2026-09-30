@@ -6,7 +6,6 @@ import com.glomopay.sdk.android.GlomoPayConfig
 data class CheckoutFormState(
     val publicKey: String,
     val identifier: String,
-    val devMode: Boolean,
 ) {
     fun toConfig(): GlomoPayConfig {
         require(publicKey.isNotBlank()) { "Public key is required" }
@@ -17,7 +16,6 @@ data class CheckoutFormState(
             publicKey = publicKey.trim(),
             orderId = value.takeUnless { isSubscription },
             subscriptionId = value.takeIf { isSubscription },
-            devMode = devMode,
         )
     }
 }

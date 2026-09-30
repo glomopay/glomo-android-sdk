@@ -5,12 +5,13 @@ plugins {
 
 android {
     namespace = "com.glomopay.sdk.android.sampleApp"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.glomopay.sdk.android.sampleApp"
         minSdk = 24
-        targetSdk = 35
+        // Override with -PMERCHANT_TARGET_SDK=34, 35 or 36 for the support matrix.
+        targetSdk = providers.gradleProperty("MERCHANT_TARGET_SDK").orElse("36").get().toInt()
         versionCode = 1
         versionName = "1.0.0"
     }

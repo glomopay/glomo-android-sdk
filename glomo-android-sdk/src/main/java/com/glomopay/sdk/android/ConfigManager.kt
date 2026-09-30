@@ -1,5 +1,6 @@
 package com.glomopay.sdk.android
 
+import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
@@ -27,6 +28,20 @@ public object ConfigManager {
                 "mode" to getMode(config.publicKey),
             ),
         )
+    }
+
+    internal fun getCheckoutDocumentStartOriginRules(
+        config: GlomoPayConfig,
+        orderType: String = "standard",
+    ): Set<String> = checkoutDocumentStartOriginRules(getCheckoutUrl(config, orderType))
+
+    internal fun checkoutDocumentStartOriginRules(url: String): Set<String> {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return emptySet()
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host?.lowercase() ?: return emptySet()
+        if (scheme != "https" && scheme != "http") return emptySet()
+        val port = uri.port.takeIf { it >= 0 }?.let { ":$it" } ?: ""
+        return setOf("$scheme://$host$port")
     }
 
     internal fun getCarouselUrl(config: GlomoPayConfig): String =

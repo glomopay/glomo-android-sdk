@@ -11,19 +11,19 @@ import kotlin.test.assertTrue
 
 class EducationCarouselContractTest {
     @Test
-    fun documented_type_and_value_payload_is_supported() {
+    fun checkout_event_and_hasContent_payload_is_supported() {
         assertEquals(
             true,
             EducationCarouselContract.parseAvailabilitySignal(
-                """{"type":"lrs.has_education_steps","value":true}""",
+                """{"event":"lrs.has_education_steps","hasContent":true}""",
             ),
         )
     }
 
     @Test
-    fun legacy_and_explicit_false_payloads_are_ignored() {
-        assertNull(EducationCarouselContract.parseAvailabilitySignal(
-            """{"event":"lrs.has_education_steps","hasContent":true}""",
+    fun explicit_false_hides_content_and_old_contract_is_ignored() {
+        assertEquals(false, EducationCarouselContract.parseAvailabilitySignal(
+            """{"event":"lrs.has_education_steps","hasContent":false}""",
         ))
         assertNull(EducationCarouselContract.parseAvailabilitySignal(
             """{"type":"lrs.has_education_steps","value":false}""",
@@ -76,9 +76,7 @@ class EducationCarouselContractTest {
         assertTrue(script.contains("window.postMessage = function"))
         assertTrue(script.contains("window.addEventListener('message'"))
         assertTrue(script.contains("window.GlomoCarousel.postMessage"))
-        assertTrue(script.contains("parsed.type !== 'lrs.has_education_steps'"))
-        assertTrue(script.contains("parsed.value !== true"))
-        assertFalse(script.contains("parsed.event"))
-        assertFalse(script.contains("parsed.hasContent"))
+        assertTrue(script.contains("parsed.event !== 'lrs.has_education_steps'"))
+        assertTrue(script.contains("typeof parsed.hasContent !== 'boolean'"))
     }
 }

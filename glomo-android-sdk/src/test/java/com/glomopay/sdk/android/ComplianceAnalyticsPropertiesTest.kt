@@ -8,18 +8,17 @@ import kotlin.test.assertTrue
 
 class ComplianceAnalyticsPropertiesTest {
     @Test
-    fun dev_mode_sends_all_compliance_signals_as_explicit_nulls() {
-        val properties = complianceAnalyticsProperties(devMode = true, result = result())
-
-        EXPECTED_KEYS.forEach { key ->
-            assertTrue(properties.containsKey(key))
-            assertEquals(null, properties[key])
-        }
+    fun compliance_properties_preserve_observed_signals() {
+        val properties = complianceAnalyticsProperties(result())
+        assertEquals(false, properties["is_compliant"])
+        assertEquals(true, properties["is_jailbroken"])
+        assertEquals(false, properties["checks_skipped"])
+        assertEquals(true, properties["is_developer_mode_enabled"])
     }
 
     @Test
-    fun strict_mode_sends_android_compliance_signals() {
-        val properties = complianceAnalyticsProperties(devMode = false, result = result())
+    fun compliance_properties_include_android_signals() {
+        val properties = complianceAnalyticsProperties(result())
 
         assertEquals(false, properties["is_compliant"])
         assertEquals(true, properties["is_jailbroken"])

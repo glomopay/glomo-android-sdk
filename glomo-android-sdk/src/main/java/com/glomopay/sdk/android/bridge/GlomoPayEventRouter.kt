@@ -18,18 +18,23 @@ import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class GlomoPayEventRouter(
-    private val listener: GlomoPayListener?,
+    listener: GlomoPayListener?,
     private val devMode: Boolean,
     private val onComplete: (GlomoPayResult) -> Unit,
     private val onWindowOpen: (String) -> Unit = {},
     private val onWindowClose: () -> Unit = {},
-    private val onPaymentPending: () -> Unit = {},
     private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
     private val errorReporter: SdkErrorReporter = NoOpSdkErrorReporter,
+    private val onBridgeReady: () -> Unit = {},
+    private val onDependenciesFailed: () -> Unit = {},
 ) {
+    private val listener = listener?.let { com.glomopay.sdk.android.GuardedGlomoPayListener(it, errorReporter) }
     private val terminalDelivered = AtomicBoolean(false)
 
+    fun stop() { terminalDelivered.set(true) }
+
     fun handle(rawMessage: String, webViewType: String = "main") {
+        if (terminalDelivered.get()) return
         try {
             val envelope = JSONObject(rawMessage).toMap()
             handleEnvelope(envelope, webViewType)
@@ -50,11 +55,18 @@ internal class GlomoPayEventRouter(
     }
 
     fun handleEnvelope(envelope: Map<String, Any?>, webViewType: String = "main") {
+        if (terminalDelivered.get()) return
         try {
             when (envelope["type"]?.toString()) {
+                "bridge.ready" -> if (webViewType == "main") onBridgeReady()
                 "console" -> handleConsole(envelope)
                 "window.open" -> {
                     val url = envelope["url"] as? String ?: return
+                    if (!com.glomopay.sdk.android.Validator.isValidUrl(url)) {
+                        emit("flow.navigation_blocked", mapOf("reason" to "invalid_window_open_url"))
+                        analytics.track("Non-HTTP Navigation", mapOf("webview_type" to webViewType))
+                        return
+                    }
                     analytics.track(AnalyticsEvents.REDIRECT_OPENED, mapOf(
                         "source" to webViewType,
                         "url" to AnalyticsSanitizer.bankRedirectUrl(url),
@@ -108,9 +120,6 @@ internal class GlomoPayEventRouter(
             "level" to level,
             "message" to AnalyticsSanitizer.text(message, 1_000),
         ))
-        if (level == "error" && (message.startsWith("ApiError:") || message.contains("LRS information not found"))) {
-            emitDependencyError(message, "js_console_error")
-        }
     }
 
     private fun handlePaymentEvent(rawData: Map<*, *>?) {
@@ -119,7 +128,7 @@ internal class GlomoPayEventRouter(
         val eventName = (data["type"] as? String)?.takeIf { it.isNotEmpty() }
             ?: data["event"]?.toString()
             ?: data["status"]?.toString()
-        if (eventName != null) emit(eventName, data)
+        if (eventName != null) listener?.onEvent(eventName, data)
 
         val payloadData = ((data["payload"] as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value })
             ?.let { data + it } ?: data
@@ -130,25 +139,51 @@ internal class GlomoPayEventRouter(
                 analytics.track(AnalyticsEvents.PAYMENT_SUCCESS, mapOf("payment_id" to payload.paymentId))
                 if (isValidPaymentPayload(payload)) completeSuccess(payload)
             }
+            // A submitted bank transfer is a journey, not a payment: no paymentId and no
+            // signature exist, so there is nothing a host's backend can verify. Reporting
+            // it through onPaymentSuccess told merchants money had moved when it had not.
             "payment.bank_transfer_submitted" -> {
-                val payload = GlomoPayPayload.fromMap(payloadData)
                 analytics.track(AnalyticsEvents.BANK_TRANSFER_SUBMITTED)
-                if (payload.orderId.isNotEmpty()) {
-                    completeSuccess(payload)
+                val journey = com.glomopay.sdk.android.GlomoPayUserJourneyPayload.fromMap(
+                    journeyType = com.glomopay.sdk.android.GlomoPayUserJourneyType.BANK_TRANSFER,
+                    json = payloadData,
+                )
+                if (journey.orderId.isEmpty()) {
+                    // Rejected, but never silently: a dropped journey must leave a trace.
+                    errorReporter.capture(
+                        operation = "thin_bank_transfer_payload",
+                        error = IllegalStateException("Bank transfer payload carried no orderId"),
+                        context = mapOf("keys" to payloadData.keys.sorted().joinToString(",")),
+                    )
+                    return
                 }
+                completeUserJourney(journey)
             }
+            // Delivered on the event name alone. The previous rule also required a signature,
+            // which a failure payload has never carried - that field exists so a host can
+            // verify a success - so onPaymentFailure never fired for a confirmed decline in
+            // any release build. Do not substitute another schema check here: replacing one
+            // guess about the page's schema with another invites the same silent misroute the
+            // next time that schema moves.
             "payment.failure", "payment.failed", "failed", "payment.error" -> {
                 val payload = GlomoPayPayload.fromMap(payloadData)
                 analytics.track(AnalyticsEvents.PAYMENT_FAILURE, mapOf(
                     "payment_id" to payload.paymentId,
                     "reason" to (payloadData["reason"] ?: payloadData["message"])?.toString(),
                 ))
-                if (isValidPaymentPayload(payload)) completeFailure(payload)
+                if (payload.orderId.isEmpty()) {
+                    errorReporter.capture(
+                        operation = "thin_payment_failure_payload",
+                        error = IllegalStateException("Payment failure payload carried no orderId"),
+                        context = mapOf("keys" to payloadData.keys.sorted().joinToString(",")),
+                    )
+                }
+                // Delivered either way: the payload travels as-is in rawResponse.
+                completeFailure(payload)
             }
             "payment.pending", "pending" -> {
                 val payload = GlomoPayPayload.fromMap(payloadData)
                 analytics.track(AnalyticsEvents.PAYMENT_PENDING, mapOf("payment_id" to payload.paymentId))
-                onPaymentPending()
             }
             "payment.cancelled", "cancelled" -> {
                 analytics.track(AnalyticsEvents.PAYMENT_CANCELLED)
@@ -183,6 +218,16 @@ internal class GlomoPayEventRouter(
         onComplete(GlomoPayResult.Success(payload.toMap()))
     }
 
+    /**
+     * Terminal like the payment callbacks - the journey is over and checkout closes -
+     * but delivered through onUserJourneyCompleted, never onPaymentSuccess.
+     */
+    private fun completeUserJourney(payload: com.glomopay.sdk.android.GlomoPayUserJourneyPayload) {
+        if (!terminalDelivered.compareAndSet(false, true)) return
+        listener?.onUserJourneyCompleted(payload)
+        onComplete(GlomoPayResult.JourneyCompleted(payload.toMap()))
+    }
+
     private fun completeFailure(payload: GlomoPayPayload) {
         if (!terminalDelivered.compareAndSet(false, true)) return
         listener?.onPaymentFailure(payload)
@@ -196,10 +241,11 @@ internal class GlomoPayEventRouter(
     }
 
     private fun emit(name: String, data: Map<String, Any?>) {
-        listener?.onEvent(name, data)
+        listener?.onEvent("glomo_android_sdk.$name", data)
     }
 
     private fun emitDependencyError(message: String?, source: String = "bridge") {
+        onDependenciesFailed()
         analytics.track(AnalyticsEvents.CHECKOUT_DEPENDENCIES_FAILED, mapOf(
             "error_message" to (message ?: "Checkout dependencies failed to load"),
         ))
@@ -215,7 +261,7 @@ internal class GlomoPayEventRouter(
     }
 
     private fun isValidPaymentPayload(payload: GlomoPayPayload): Boolean =
-        payload.orderId.isNotEmpty() && !payload.paymentId.isNullOrEmpty() && !payload.signature.isNullOrEmpty()
+        com.glomopay.sdk.android.Validator.isValidPaymentPayload(payload)
 
     private fun trackSdkError(message: String) {
         val serializedError = JSONObject(mapOf(

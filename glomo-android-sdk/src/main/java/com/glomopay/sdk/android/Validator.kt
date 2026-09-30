@@ -20,8 +20,11 @@ public object Validator {
     }
 
     public fun isValidUrl(url: String): Boolean {
-        val lower = url.lowercase()
-        return lower.startsWith("http://") || lower.startsWith("https://")
+        return runCatching {
+            val uri = java.net.URI(url)
+            uri.scheme?.lowercase() in setOf("http", "https") &&
+                !uri.host.isNullOrBlank() && uri.rawUserInfo == null
+        }.getOrDefault(false)
     }
 
     public fun isValidPaymentPayload(payload: GlomoPayPayload): Boolean =
@@ -29,5 +32,4 @@ public object Validator {
             !payload.paymentId.isNullOrEmpty() &&
             !payload.signature.isNullOrEmpty()
 
-    public fun isValidBankTransferPayload(payload: GlomoPayPayload): Boolean = payload.orderId.isNotEmpty()
 }
