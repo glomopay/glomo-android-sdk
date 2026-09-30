@@ -19,14 +19,19 @@ function environment(hasBodyContent = true) {
     GlomoPayFlowBridge: {postMessage(raw) { messages.push(JSON.parse(raw)); }},
     close() {},
   };
+  window.top = window;
   const context = vm.createContext({window, console: {log(){},warn(){},error(){},info(){}},
-    document: {addEventListener(){}, body: {innerText: hasBodyContent ? 'x'.repeat(101) : '', querySelectorAll(){return [];}}},
+    document: {
+      readyState: 'complete',
+      addEventListener(){},
+      body: {innerText: hasBodyContent ? 'x'.repeat(101) : '', querySelectorAll(){return [];}},
+    },
     HTMLFormElement: function(){}, XMLHttpRequest: function(){},
     setTimeout(fn, delay) { assert.equal(delay, 3000); timers.push(fn); },
   });
   context.HTMLFormElement.prototype.submit = function() {};
   context.XMLHttpRequest.prototype.open = function() {};
-  return {context, window, messages, timers};
+  return {context, window, messages, timers, listeners};
 }
 for (const value of [true, false]) {
   const e = environment();
@@ -57,6 +62,34 @@ assert.deepEqual(flow.messages.slice(-2), [
 assert.equal(flow.messages.filter(m => m.type === 'bridge.ready').length, 1);
 vm.runInContext(script('build', 'GlomoPayFlowBridge'), flow.context);
 assert.equal(flow.messages.filter(m => m.type === 'bridge.ready').length, 1, 'bridge injection must be idempotent');
+const deferred = environment();
+deferred.context.document.readyState = 'loading';
+vm.runInContext(script('build', 'GlomoPayFlowBridge'), deferred.context);
+assert.equal(
+  deferred.messages.filter(m => m.type === 'bridge.ready').length,
+  0,
+  'bridge.ready must not fire before the document has loaded',
+);
+deferred.listeners.load();
+assert.equal(
+  deferred.messages.filter(m => m.type === 'bridge.ready').length,
+  1,
+  'bridge.ready fires once, on load',
+);
+deferred.listeners.load();
+assert.equal(
+  deferred.messages.filter(m => m.type === 'bridge.ready').length,
+  1,
+  'bridge.ready load handler must be idempotent',
+);
+const subframe = environment();
+subframe.context.window.top = {};
+vm.runInContext(script('build', 'GlomoPayFlowBridge'), subframe.context);
+assert.equal(
+  subframe.messages.filter(m => m.type === 'bridge.ready').length,
+  0,
+  'subframes must not emit bridge.ready',
+);
 const viewport = environment();
 const meta = {setAttribute(name, value) { this[name] = value; }};
 viewport.context.document.head = {};

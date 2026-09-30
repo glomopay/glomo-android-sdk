@@ -16,6 +16,12 @@ val mixpanelToken = providers.gradleProperty("MIXPANEL_TOKEN")
 val sentryDsn = providers.gradleProperty("SENTRY_DSN")
     .orElse(providers.environmentVariable("SENTRY_DSN"))
     .orElse("")
+val nodeBinary = providers.gradleProperty("NODE_BINARY")
+    .orElse(providers.environmentVariable("NODE_BINARY"))
+    .orElse("node")
+val nodeVersion = providers.exec {
+    commandLine(nodeBinary.get(), "--version")
+}.standardOutput.asText
 
 android {
     namespace = "com.glomopay.sdk.android"
@@ -55,11 +61,22 @@ val bridgeContractTest by tasks.registering(Exec::class) {
     group = "verification"
     description = "Runs the JavaScript bridge contract against the scripts embedded in Kotlin."
     workingDir(rootProject.projectDir)
-    commandLine("node", file("src/test/js/bridge-contract.cjs").absolutePath)
+    commandLine(nodeBinary.get(), file("src/test/js/bridge-contract.cjs").absolutePath)
     inputs.files(
         file("src/test/js/bridge-contract.cjs"),
         file("src/main/java/com/glomopay/sdk/android/bridge/GlomoPayInjectionScripts.kt"),
     )
+    doFirst {
+        try {
+            logger.lifecycle(nodeVersion.get().trim())
+        } catch (error: Exception) {
+            throw GradleException(
+                "bridgeContractTest requires Node.js. Install node on PATH or set NODE_BINARY " +
+                    "or -PNODE_BINARY to the node executable.",
+                error,
+            )
+        }
+    }
 }
 
 tasks.named("check") {

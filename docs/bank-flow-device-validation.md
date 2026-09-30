@@ -60,8 +60,18 @@ device and one Android 15+ device. Cover targetSdk 34, 35 and 36, and include on
 large-screen Android 16+ rotation run because the system may ignore the portrait
 request there. Build the in-repo sample host with `-PMERCHANT_TARGET_SDK=<34|35|36>`.
 
-## Prerequisite
+## Prerequisites and ownership
 
-The standalone `glomopay-android-sdk-test-app` repository must be on a build that
-no longer passes `devMode` to `GlomoPayConfig`, otherwise it will not compile
-against this SDK. The in-repo `sample-app` is already updated.
+- The in-repo `sample-app` is the build gate for target SDK coverage. Build it with
+  `-PMERCHANT_TARGET_SDK=<34|35|36>` before using each host target SDK row.
+- The standalone `glomopay-android-sdk-test-app` currently lives at
+  `https://github.com/mayankmatkar/glomopay-android-sdk-test-app`, not under the
+  `glomopay` org. It must be moved or explicitly assigned before bank/device runs
+  begin.
+- The standalone app must compile against this SDK without passing `devMode` to
+  `GlomoPayConfig`. Its local development settings should point at the sibling SDK
+  source, or set `GLOMO_ANDROID_SDK_DIR` / `-PGLOMO_ANDROID_SDK_DIR` to the SDK module.
+
+Validation owner: **TBD before signoff**.
+
+Evidence owner: **TBD before signoff**.

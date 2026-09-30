@@ -56,6 +56,39 @@ class ConfigManagerTest {
     }
 
     @Test
+    fun checkout_document_start_origin_rules_match_the_checkout_host_only() {
+        assertEquals(
+            setOf("https://checkout.glomopay.com"),
+            ConfigManager.getCheckoutDocumentStartOriginRules(
+                GlomoPayConfig("live_key", orderId = "order_1"),
+            ),
+        )
+        assertEquals(
+            setOf("https://lrs-checkout.glomopay.com"),
+            ConfigManager.getCheckoutDocumentStartOriginRules(
+                GlomoPayConfig("live_key", orderId = "order_1"),
+                "lrs",
+            ),
+        )
+        assertEquals(
+            setOf("https://merchant.example:8443"),
+            ConfigManager.getCheckoutDocumentStartOriginRules(
+                GlomoPayConfig(
+                    "live_key",
+                    orderId = "order_1",
+                    server = "https://merchant.example:8443/checkout",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun checkout_document_start_origin_rules_ignore_non_http_urls() {
+        assertEquals(emptySet(), ConfigManager.checkoutDocumentStartOriginRules("file:///android_asset/checkout.html"))
+        assertEquals(emptySet(), ConfigManager.checkoutDocumentStartOriginRules("not a url"))
+    }
+
+    @Test
     fun mode_helpers_match_flutter_prefix_rules() {
         assertEquals("live", ConfigManager.getMode("live_key"))
         assertEquals("mock", ConfigManager.getMode("test_key"))

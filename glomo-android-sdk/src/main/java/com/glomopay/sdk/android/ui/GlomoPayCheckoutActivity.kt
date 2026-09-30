@@ -109,6 +109,8 @@ public class GlomoPayCheckoutActivity : Activity() {
     private var openStartedAt = 0L
     private var openTimeout: kotlinx.coroutines.Job? = null
     private var renderTimeout: kotlinx.coroutines.Job? = null
+    private var supportsDocumentStartInjection = false
+    private var mainDocumentStartInjectionInstalled = false
     private var flowErrorPanel: View? = null
     private var backCallback: android.window.OnBackInvokedCallback? = null
 
@@ -193,7 +195,7 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     private fun buildContentView() {
-        val supportsDocumentStartInjection =
+        supportsDocumentStartInjection =
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
         webView = CheckoutWebViewFactory.create(this).apply {
             webViewClient = CheckoutWebViewClient(
@@ -203,14 +205,14 @@ public class GlomoPayCheckoutActivity : Activity() {
                     analytics.track(AnalyticsEvents.NAVIGATION_STARTED, navigationProperties(url))
                     mainErrorPanel?.visibility = View.GONE
                     updateState(CheckoutUiState.Loading)
-                    if (!supportsDocumentStartInjection) evaluateInjection()
+                    if (!mainDocumentStartInjectionInstalled) evaluateInjection()
                 },
                 onPageFinishedCallback = { url ->
                     currentUrl = url
                     advanceOpenStep(com.glomopay.sdk.android.state.CheckoutOpenStep.NAVIGATION_FINISHED)
                     analytics.track(AnalyticsEvents.NAVIGATION_FINISHED, navigationProperties(url))
                     updateState(CheckoutUiState.Content)
-                    if (!supportsDocumentStartInjection) evaluateInjection()
+                    if (!mainDocumentStartInjectionInstalled) evaluateInjection()
                 },
                 onUrlChangedCallback = { url ->
                     currentUrl = url
@@ -224,13 +226,6 @@ public class GlomoPayCheckoutActivity : Activity() {
             addJavascriptInterface(GlomoPayJavaScriptBridge { raw ->
                 runOnUiThread { eventRouter.handle(raw) }
             }, "GlomoPayBridge")
-            if (supportsDocumentStartInjection) {
-                WebViewCompat.addDocumentStartJavaScript(
-                    this,
-                    mainInjectionScript(),
-                    setOf("*"),
-                )
-            }
         }
 
         rootView = FrameLayout(this)
@@ -397,6 +392,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         analytics.track(AnalyticsEvents.CHECKOUT_STARTED)
         currentUrl = url
         advanceOpenStep(com.glomopay.sdk.android.state.CheckoutOpenStep.URL_RESOLVED)
+        installMainDocumentStartInjection(url)
         startRenderWatchdog()
         webView.loadUrl(url)
     }
@@ -474,7 +470,7 @@ public class GlomoPayCheckoutActivity : Activity() {
 
     private fun startOpenWatchdog() {
         openStartedAt = android.os.SystemClock.elapsedRealtime()
-        analytics.track(AnalyticsEvents.CHECKOUT_WEBVIEW_CREATED, mapOf("step" to "webview_created"))
+        advanceOpenStep(com.glomopay.sdk.android.state.CheckoutOpenStep.WEB_VIEW_CREATED)
         openTimeout?.cancel()
         openTimeout = checkoutScope.launch {
             kotlinx.coroutines.delay(OPEN_TIMEOUT_MS)
@@ -508,6 +504,18 @@ public class GlomoPayCheckoutActivity : Activity() {
         connectionFailureVisible = false
         mainErrorPanel?.visibility = View.GONE
         updateState(CheckoutUiState.Content)
+    }
+
+    private fun installMainDocumentStartInjection(checkoutUrl: String) {
+        if (mainDocumentStartInjectionInstalled || !supportsDocumentStartInjection) return
+        val originRules = ConfigManager.checkoutDocumentStartOriginRules(checkoutUrl)
+        if (originRules.isEmpty()) return
+        WebViewCompat.addDocumentStartJavaScript(
+            webView,
+            mainInjectionScript(),
+            originRules,
+        )
+        mainDocumentStartInjectionInstalled = true
     }
 
     private fun evaluateInjection() {
@@ -663,7 +671,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         mainErrorPanel?.visibility = View.GONE
         updateState(CheckoutUiState.Loading)
         prepareEducationCarousel(currentOrderType)
-        webView.loadUrl(currentUrl ?: ConfigManager.getCheckoutUrl(config, currentOrderType))
+        val retryUrl = currentUrl ?: ConfigManager.getCheckoutUrl(config, currentOrderType)
+        installMainDocumentStartInjection(retryUrl)
+        webView.loadUrl(retryUrl)
     }
 
     private fun cancelCheckout() {

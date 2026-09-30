@@ -12,6 +12,9 @@ import kotlin.test.assertTrue
 class GroupTwoSafetyTest {
     @Test fun redirect_callbacks_do_not_rewind_open_funnel_and_timeout_reports_once() {
         val funnel = CheckoutOpenFunnel()
+        assertEquals(CheckoutOpenStep.WEB_VIEW_CREATED, funnel.lastStep)
+        assertTrue(funnel.advance(CheckoutOpenStep.WEB_VIEW_CREATED))
+        assertFalse(funnel.advance(CheckoutOpenStep.WEB_VIEW_CREATED))
         assertTrue(funnel.advance(CheckoutOpenStep.URL_RESOLVED))
         assertTrue(funnel.advance(CheckoutOpenStep.NAVIGATION_FINISHED))
         assertFalse(funnel.advance(CheckoutOpenStep.NAVIGATION_STARTED))

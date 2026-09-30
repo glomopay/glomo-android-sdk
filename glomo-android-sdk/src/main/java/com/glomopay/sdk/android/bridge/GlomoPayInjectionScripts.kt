@@ -245,7 +245,21 @@ internal object GlomoPayInjectionScripts {
                 capture:t.getAttribute('capture')||'',inputId:t.id||'',inputName:t.name||''}));
             }
           }, true);
-          bridge(JSON.stringify({type:'bridge.ready'}));
+          var sendBridgeReady = function() {
+            if (window.__glomoBridgeReadySent__) return;
+            try {
+              if (window.top !== window) return;
+            } catch (e) {
+              return;
+            }
+            window.__glomoBridgeReadySent__ = true;
+            bridge(JSON.stringify({type:'bridge.ready'}));
+          };
+          if (document.readyState === 'complete') {
+            sendBridgeReady();
+          } else {
+            window.addEventListener('load', sendBridgeReady, {once:true});
+          }
         })();
     """.trimIndent()
 }

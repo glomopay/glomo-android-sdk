@@ -10,13 +10,16 @@ internal enum class CheckoutOpenStep(val value: String) {
 
 /** Tracks one open attempt; redirect callbacks cannot move the funnel backwards. */
 internal class CheckoutOpenFunnel {
-    var lastStep: CheckoutOpenStep = CheckoutOpenStep.WEB_VIEW_CREATED
-        private set
+    private var reachedStep: CheckoutOpenStep? = null
     private var timeoutReported = false
 
+    /** The reporting default before any open-funnel event has fired. */
+    val lastStep: CheckoutOpenStep
+        get() = reachedStep ?: CheckoutOpenStep.WEB_VIEW_CREATED
+
     fun advance(step: CheckoutOpenStep): Boolean {
-        if (step.ordinal <= lastStep.ordinal) return false
-        lastStep = step
+        reachedStep?.let { if (step.ordinal <= it.ordinal) return false }
+        reachedStep = step
         return true
     }
 
