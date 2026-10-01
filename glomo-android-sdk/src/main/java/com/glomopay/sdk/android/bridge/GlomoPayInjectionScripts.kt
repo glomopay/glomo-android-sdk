@@ -153,8 +153,10 @@ internal object GlomoPayInjectionScripts {
           window[flag] = true;
           // The bridge's own call is the only thing guarded. If the native peer is gone,
           // postMessage throws; unguarded, that reached the page's error listener below, which
-          // called bridge() again. The failure is recorded once per page instead. Errors the
-          // page raises still reach the listener and are reported one-for-one, as before.
+          // called bridge() again. The failure is recorded once per page instead: a window
+          // marker always, and a console warning in internal builds only, since WebView forwards
+          // page console output to logcat and release builds log nothing. Errors the page raises
+          // still reach the listener and are reported one-for-one, as before.
           var failedFlag = '__glomo_${bridgeName}_Failed__';
           var nativeWarn = (function() {
             try { return console.warn.bind(console); } catch(e) { return function() {}; }
@@ -170,7 +172,9 @@ internal object GlomoPayInjectionScripts {
             } catch(e) {
               if (!window[failedFlag]) {
                 window[failedFlag] = true;
-                try { nativeWarn('[GlomoPay] $bridgeName.postMessage failed: ' + e); } catch(ignored) {}
+                if (window.__glomoDevMode__ === true) {
+                  try { nativeWarn('[GlomoPay] $bridgeName.postMessage failed: ' + e); } catch(ignored) {}
+                }
               }
             } finally {
               inBridge = false;

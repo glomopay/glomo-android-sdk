@@ -128,8 +128,9 @@ assert.equal(
 // bridge() and the page's error listeners. dispatch() models the worst case the task describes:
 // an exception escaping a listener is reported as a fresh 'error' event. The cap turns a loop
 // into a failed assertion instead of a hang.
-function withPeer(postMessage) {
+function withPeer(postMessage, devMode = false) {
   const e = environment();
+  e.window.__glomoDevMode__ = devMode;
   e.warnings = [];
   e.context.console.warn = (m) => e.warnings.push(String(m));
   e.window.GlomoPayFlowBridge = {postMessage};
@@ -148,7 +149,8 @@ function withPeer(postMessage) {
 const pageErrors = (msgs, kind) => msgs.filter(m => m.type === 'webview.error' && m.errorType === kind);
 
 {
-  // A dead peer: every call throws. Bounded calls, no re-dispatch, recorded once.
+  // A dead peer in a release build: every call throws. One call per page error, no
+  // re-dispatch, recorded once on the window, nothing logged.
   let calls = 0;
   const e = withPeer(() => { calls++; throw new Error('peer gone'); });
   const afterLoad = calls;
@@ -156,8 +158,20 @@ const pageErrors = (msgs, kind) => msgs.filter(m => m.type === 'webview.error' &
   e.dispatch('unhandledrejection', {reason: 'page rejection'});
   assert.equal(calls, afterLoad + 2, 'one bridge call per page error, no retries');
   assert.equal(e.redispatched, 0, 'a bridge failure must never reach the error listener');
-  assert.equal(e.warnings.filter(w => w.includes('postMessage failed')).length, 1, 'recorded once per page');
   assert.equal(e.window.__glomo_GlomoPayFlowBridge_Failed__, true);
+  assert.equal(e.warnings.length, 0, 'release builds log nothing');
+}
+
+{
+  // The same in an internal build, which also forwards each page error to the console log
+  // (two bridge calls per error, as before): still bounded, and warned exactly once.
+  let calls = 0;
+  const e = withPeer(() => { calls++; throw new Error('peer gone'); }, true);
+  const afterLoad = calls;
+  for (const m of ['a', 'b', 'c']) e.dispatch('error', {message: m});
+  assert.equal(calls, afterLoad + 6);
+  assert.equal(e.redispatched, 0);
+  assert.equal(e.warnings.filter(w => w.includes('postMessage failed')).length, 1, 'recorded once per page');
 }
 
 {
