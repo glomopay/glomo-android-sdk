@@ -1,40 +1,33 @@
 package com.glomopay.sdk.android
 
-import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
 import com.glomopay.sdk.android.carousel.EducationCarouselContract
 import com.glomopay.sdk.android.carousel.EducationCarouselState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EducationCarouselContractTest {
     @Test
-    fun checkout_event_and_hasContent_payload_is_supported() {
-        assertEquals(
-            true,
-            EducationCarouselContract.parseAvailabilitySignal(
-                """{"event":"lrs.has_education_steps","hasContent":true}""",
-            ),
-        )
+    fun the_live_page_signal_shows_the_carousel() {
+        // Exactly what glomopay-checkout lrs-carousel.event-emitter.ts sends.
+        assertTrue(EducationCarouselContract.isShowSignal("""{"type":"lrs.has_education_steps","value":true}"""))
     }
 
     @Test
-    fun explicit_false_hides_content_and_old_contract_is_ignored() {
-        assertEquals(false, EducationCarouselContract.parseAvailabilitySignal(
-            """{"event":"lrs.has_education_steps","hasContent":false}""",
-        ))
-        assertNull(EducationCarouselContract.parseAvailabilitySignal(
+    fun anything_other_than_the_live_signal_leaves_the_carousel_hidden() {
+        listOf(
+            // The page never emits false; if it did, it must not change anything.
             """{"type":"lrs.has_education_steps","value":false}""",
-        ))
-    }
-
-    @Test
-    fun unrelated_or_incomplete_messages_do_not_change_state() {
-        assertNull(EducationCarouselContract.parseAvailabilitySignal("""{"type":"payment.pending"}"""))
-        assertNull(EducationCarouselContract.parseAvailabilitySignal("""{"type":"lrs.has_education_steps"}"""))
-        assertNull(EducationCarouselContract.parseAvailabilitySignal("not-json"))
+            // The Flutter-style shape is not part of the contract.
+            """{"event":"lrs.has_education_steps","hasContent":true}""",
+            """{"type":"lrs.has_education_steps","value":"true"}""",
+            """{"type":"lrs.has_education_steps"}""",
+            """{"type":"payment.pending","value":true}""",
+            """{"type":"lrs.has_education_steps",""",
+            "not-json",
+            "",
+        ).forEach { assertFalse(EducationCarouselContract.isShowSignal(it), "Expected hidden for <$it>") }
     }
 
     @Test
@@ -67,16 +60,5 @@ class EducationCarouselContractTest {
         assertEquals(100f, pending.paymentWeight)
         assertFalse(standard.showCarousel)
         assertFalse(subscription.showCarousel)
-    }
-
-    @Test
-    fun carousel_injection_intercepts_early_and_late_messages() {
-        val script = GlomoPayInjectionScripts.carousel()
-
-        assertTrue(script.contains("window.postMessage = function"))
-        assertTrue(script.contains("window.addEventListener('message'"))
-        assertTrue(script.contains("window.GlomoCarousel.postMessage"))
-        assertTrue(script.contains("parsed.event !== 'lrs.has_education_steps'"))
-        assertTrue(script.contains("typeof parsed.hasContent !== 'boolean'"))
     }
 }

@@ -39,7 +39,7 @@ The intended coordinates are:
 ```text
 groupId:    com.glomopay
 artifactId: glomo-android-sdk
-version:    1.0.0
+version:    2.0.0
 ```
 
 ## Publish
@@ -54,11 +54,11 @@ Validate the deployment in the Sonatype Central Portal, then verify that a clean
 
 ## Tag and document
 
-Update `CHANGELOG.md`, review `README.md`, and create a Git tag matching the library version:
+Update `CHANGELOG.md`, review `README.md`, and create a `v`-prefixed Git tag for the library version:
 
 ```bash
-git tag 1.0.0
-git push origin 1.0.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 Use the standalone test app APK only for QA. Consumers should depend on the published AAR rather than an APK or unsigned local artifact.

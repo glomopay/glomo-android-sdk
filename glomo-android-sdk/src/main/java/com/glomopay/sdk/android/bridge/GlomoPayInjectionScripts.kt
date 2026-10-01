@@ -100,32 +100,31 @@ internal object GlomoPayInjectionScripts {
     })();
       """.trimIndent()
 
-    fun carouselFallback(): String = """
-        (function() {
-          if (window.__glomoCarouselPollScheduled__) return;
-          window.__glomoCarouselPollScheduled__ = true;
-          setTimeout(function() {
-            if (window.__glomoCarouselStateSent__) return;
-            var b = document.body;
-            var text = b && b.innerText ? b.innerText.trim() : '';
-            var count = b ? b.querySelectorAll('*').length : 0;
-            window.postMessage({event:'lrs.has_education_steps',hasContent:text.length>100 || count>10}, '*');
-          }, 3000);
-        })();
-    """.trimIndent()
-
+    /**
+     * Forwards the education page's one signal, `{type:'lrs.has_education_steps', value:true}`.
+     * The page never emits `value:false`: no signal means no content, so nothing else is forwarded
+     * and there is no DOM heuristic. A signal sent before the bridge exists is held and flushed
+     * the next time this script runs (document start, page start, page finish).
+     */
     fun carousel(bridgeName: String = "GlomoCarousel"): String = """
         (function() {
           var pendingKey = '__glomoCarouselPendingMessage__';
+          var post = function(payload) {
+            try {
+              if (!window.$bridgeName) return false;
+              window.$bridgeName.postMessage(payload);
+              return true;
+            } catch(e) { return false; }
+          };
           var send = function(data) {
             try {
               var parsed = typeof data === 'string' ? JSON.parse(data) : data;
-              if (!parsed) return;
-              if (parsed.event !== 'lrs.has_education_steps' || typeof parsed.hasContent !== 'boolean') return;
-              window.__glomoCarouselStateSent__ = true;
-              var payload = JSON.stringify({event:parsed.event,hasContent:parsed.hasContent});
-              if (window.$bridgeName) window.$bridgeName.postMessage(payload);
-              else window[pendingKey] = payload;
+              if (!parsed || parsed.type !== 'lrs.has_education_steps' || parsed.value !== true) return;
+              // One signal per page: the postMessage wrapper and the message listener both see it.
+              if (window.__glomoCarouselSignalSeen__) return;
+              window.__glomoCarouselSignalSeen__ = true;
+              var payload = JSON.stringify({type:'lrs.has_education_steps',value:true});
+              if (!post(payload)) window[pendingKey] = payload;
             } catch(e) {}
           };
 
@@ -143,10 +142,7 @@ internal object GlomoPayInjectionScripts {
             });
           }
 
-          if (window[pendingKey] && window.$bridgeName) {
-            window.$bridgeName.postMessage(window[pendingKey]);
-            window[pendingKey] = null;
-          }
+          if (window[pendingKey] && post(window[pendingKey])) window[pendingKey] = null;
         })();
     """.trimIndent()
 
@@ -155,8 +151,34 @@ internal object GlomoPayInjectionScripts {
           var flag = '__glomo_${bridgeName}_Injected__';
           if (window[flag]) return;
           window[flag] = true;
+          // The bridge's own call is the only thing guarded. If the native peer is gone,
+          // postMessage throws; unguarded, that reached the page's error listener below, which
+          // called bridge() again. The failure is recorded once per page instead: a window
+          // marker always, and a console warning in internal builds only, since WebView forwards
+          // page console output to logcat and release builds log nothing. Errors the page raises
+          // still reach the listener and are reported one-for-one, as before.
+          var failedFlag = '__glomo_${bridgeName}_Failed__';
+          var nativeWarn = (function() {
+            try { return console.warn.bind(console); } catch(e) { return function() {}; }
+          })();
+          var inBridge = false;
           var bridge = function(msg) {
-            if (window.$bridgeName) window.$bridgeName.postMessage(msg);
+            // Anything the peer triggers synchronously from inside its own postMessage, such
+            // as an error event, must not call back into it.
+            if (inBridge) return;
+            inBridge = true;
+            try {
+              if (window.$bridgeName) window.$bridgeName.postMessage(msg);
+            } catch(e) {
+              if (!window[failedFlag]) {
+                window[failedFlag] = true;
+                if (window.__glomoDevMode__ === true) {
+                  try { nativeWarn('[GlomoPay] $bridgeName.postMessage failed: ' + e); } catch(ignored) {}
+                }
+              }
+            } finally {
+              inBridge = false;
+            }
           };
           var dev = function() { return window.__glomoDevMode__ === true; };
           bridge(JSON.stringify({type:'console',level:'info',message:'GlomoPay Injection Loaded ($bridgeName)'}));

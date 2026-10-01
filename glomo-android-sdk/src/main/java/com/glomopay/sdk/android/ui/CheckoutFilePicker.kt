@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 
 internal class CheckoutFilePicker(
     private val activity: Activity,
+    private val captures: CaptureStore,
     private val scope: CoroutineScope,
     private val onError: (String) -> Unit,
     private val onPermissionRefused: (String) -> Unit = {},
@@ -31,7 +32,6 @@ internal class CheckoutFilePicker(
     private var cameraFile: File? = null
     private var cameraUri: Uri? = null
     private var dialog: AlertDialog? = null
-    private val files = mutableListOf<File>()
     private var generation = 0
     private var awaitingResult = false
 
@@ -101,9 +101,7 @@ internal class CheckoutFilePicker(
             return
         }
         try {
-            val directory = File(activity.cacheDir, "glomopay-capture").apply { mkdirs() }
-            val file = File.createTempFile("capture-", ".jpg", directory)
-            files.add(file)
+            val file = captures.newCapture()
             cameraFile = file
             val uri = FileProvider.getUriForFile(activity, activity.packageName + ".glomopay.files", file)
             cameraUri = uri
@@ -237,8 +235,7 @@ internal class CheckoutFilePicker(
 
     fun destroy() {
         cancel()
-        files.forEach { it.delete() }
-        files.clear()
+        captures.close()
     }
 
     companion object {

@@ -2,7 +2,7 @@
 
 ## Add the SDK
 
-After the `1.0.0` artifact is published, add Maven Central and the SDK dependency to the host app:
+After the `2.0.0` artifact is published, add Maven Central and the SDK dependency to the host app:
 
 ```kotlin
 repositories {
@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomo-android-sdk:1.0.0")
+    implementation("com.glomopay:glomo-android-sdk:2.0.0")
 }
 ```
 
