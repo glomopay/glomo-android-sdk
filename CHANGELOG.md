@@ -78,6 +78,7 @@ public API changes require a new major release.
 
 - Add camera, gallery and file entry points, camera permission refusal handling, and JPEG camera output limited to 2048 pixels per side at quality 85. Picked documents are not read or size-limited.
 - Deliver the new `GlomoPayListener.onUserRefusedDevicePermissions` callback when the camera permission is refused, instead of reporting the user's choice as an SDK error. It has a default implementation, so existing integrations keep compiling.
+- Sweep stale camera captures at checkout start. Captures (KYC document photos) now live in a per-checkout directory under `cacheDir/glomopay-capture`, and opening a checkout deletes every capture not owned by a checkout still live in the process. Photos left by a crash, a process death or a kill mid-upload no longer stay on disk. A sweep failure never interrupts checkout.
 - Open the photo picker on API 33+ for the Gallery entry point and fall back to the documents picker where it is unavailable, replacing a wildcard `ACTION_PICK` that several OEM galleries do not handle.
 
 ### Documented decisions
