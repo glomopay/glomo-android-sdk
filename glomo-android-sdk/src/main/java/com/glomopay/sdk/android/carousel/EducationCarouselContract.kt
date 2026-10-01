@@ -2,10 +2,10 @@ package com.glomopay.sdk.android.carousel
 
 import org.json.JSONObject
 
+/** Hidden until the page signals content. There is no "no content" signal, so no third state. */
 internal enum class EducationCarouselState {
     PENDING,
     HAS_CONTENT,
-    NO_CONTENT,
 }
 
 internal data class EducationCarouselLayout(
@@ -14,21 +14,22 @@ internal data class EducationCarouselLayout(
     val paymentWeight: Float,
 )
 
+/**
+ * The education page's one signal: `{type: 'lrs.has_education_steps', value: true}`, from
+ * glomopay-checkout `lrs-carousel.event-emitter.ts`. The page never emits `false` ("absence of
+ * event signals 'no content' to native SDKs", `lrs-education-carousel.tsx:18`), matching the RN
+ * SDK. So the carousel shows on that exact message and stays hidden otherwise, with no fallback.
+ */
 internal object EducationCarouselContract {
     const val EVENT_NAME = "lrs.has_education_steps"
 
-    fun parseAvailabilitySignal(rawMessage: String): Boolean? = runCatching {
+    fun isShowSignal(rawMessage: String): Boolean = runCatching {
         val message = JSONObject(rawMessage)
-        val data = message.keys().asSequence().associateWith { key ->
-            message.opt(key).takeUnless { it == JSONObject.NULL }
-        }
-        availabilitySignal(data)
-    }.getOrNull()
+        isShowSignal(message.keys().asSequence().associateWith { key -> message.opt(key) })
+    }.getOrDefault(false)
 
-    fun availabilitySignal(data: Map<String, Any?>): Boolean? {
-        if (data["event"] != EVENT_NAME) return null
-        return data["hasContent"] as? Boolean
-    }
+    fun isShowSignal(data: Map<String, Any?>): Boolean =
+        data["type"] == EVENT_NAME && data["value"] == true
 
     fun layout(
         state: EducationCarouselState,

@@ -64,7 +64,9 @@ public API changes require a new major release.
   it, with page-start/page-finish fallback for older implementations.
 - Report order HTTP status failures as SDK errors rather than connectivity errors.
 - Close bank overlays on Back; handle predictive Back and allow dismissal during pending payments.
-- Install the bank opener bridge before page scripts where supported and align carousel messages with the checkout contract, including a delayed DOM fallback.
+- Install the bank opener bridge before page scripts where supported.
+- Contain a failing native bridge. If the WebView's native peer is gone, the injected `bridge()` call threw: into the injection script itself, aborting the bridge setup, and into the page's error listener, which called `bridge()` again. Only the bridge's own `postMessage` is now guarded, and it cannot re-enter itself. A failure is recorded once per page: a window marker always, and a console warning in internal builds only. Errors the page raises are still reported one-for-one, exactly as before.
+- Show the LRS education carousel on the page's actual signal, `{type: 'lrs.has_education_steps', value: true}`, and only on that. 2.0.0 had been reading `{event, hasContent}`, which the page never sends, so the carousel and `Education Steps Shown` could only fire through the DOM fallback. As in the RN SDK, no signal now means no carousel: `value: false` and other shapes are ignored, and the 3-second DOM-polling fallback is removed. A signal sent before the bridge is ready is still delivered.
 - Block external schemes in bank flows and isolate merchant callback exceptions. Merchant exceptions are now reported by type and stack trace, never by message.
 - Fail order detection explicitly instead of guessing the checkout host; exclude API bodies from errors.
 - Accept any 2xx order response as the backend answering; a 2xx body the client cannot parse is reported as a malformed response rather than a status error.
@@ -77,6 +79,7 @@ public API changes require a new major release.
 
 - Add camera, gallery and file entry points, camera permission refusal handling, and JPEG camera output limited to 2048 pixels per side at quality 85. Picked documents are not read or size-limited.
 - Deliver the new `GlomoPayListener.onUserRefusedDevicePermissions` callback when the camera permission is refused, instead of reporting the user's choice as an SDK error. It has a default implementation, so existing integrations keep compiling.
+- Sweep stale camera captures at checkout start. Captures (KYC document photos) now live in a per-checkout directory under `cacheDir/glomopay-capture`, and opening a checkout deletes every capture not owned by a checkout still live in the process. Photos left by a crash, a process death or a kill mid-upload no longer stay on disk. A sweep failure never interrupts checkout.
 - Open the photo picker on API 33+ for the Gallery entry point and fall back to the documents picker where it is unavailable, replacing a wildcard `ACTION_PICK` that several OEM galleries do not handle.
 
 ### Documented decisions

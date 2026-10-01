@@ -86,9 +86,13 @@ public class GlomoPayCheckoutActivity : Activity() {
     private var lastMainAnalyticsUrl: String? = null
     private var lastRedirectAnalyticsUrl: String? = null
     private var uiState: CheckoutUiState = CheckoutUiState.Loading
+    // Opened first thing in onCreate: that sweeps captures left by a crashed or killed checkout
+    // before this one can take a photo, whether or not it ever opens the picker.
+    private lateinit var captureStore: CaptureStore
     private val filePicker by lazy {
         CheckoutFilePicker(
             activity = this,
+            captures = captureStore,
             scope = checkoutScope,
             onError = { reason ->
                 analytics.track(AnalyticsEvents.FILE_PICKER_ERROR, mapOf("reason" to reason))
@@ -116,6 +120,7 @@ public class GlomoPayCheckoutActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        captureStore = CaptureStore.open(java.io.File(cacheDir, CaptureStore.DIRECTORY))
         config = configFromIntent(intent)
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
         val checkoutSession = CheckoutSessionRegistry.get(sessionId)
@@ -538,7 +543,6 @@ public class GlomoPayCheckoutActivity : Activity() {
             },
             onPageFinishedCallback = {
                 carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
-                carousel.evaluateJavascript(GlomoPayInjectionScripts.carouselFallback(), null)
             },
             onUrlChangedCallback = {},
             onErrorCallback = { error ->
@@ -570,12 +574,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         carousel.loadUrl(ConfigManager.getCarouselUrl(config))
     }
 
+    // Only the show signal changes anything. No signal leaves the carousel pending and hidden.
     private fun handleEducationCarouselMessage(rawMessage: String) {
-        val hasContent = EducationCarouselContract.parseAvailabilitySignal(rawMessage) ?: return
-        if (hasContent) showEducationCarousel() else {
-            carouselState = EducationCarouselState.NO_CONTENT
-            applyEducationCarouselLayout()
-        }
+        if (EducationCarouselContract.isShowSignal(rawMessage)) showEducationCarousel()
     }
 
     private fun showEducationCarousel() {
