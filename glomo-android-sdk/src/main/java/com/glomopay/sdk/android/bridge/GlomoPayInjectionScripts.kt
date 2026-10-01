@@ -151,8 +151,30 @@ internal object GlomoPayInjectionScripts {
           var flag = '__glomo_${bridgeName}_Injected__';
           if (window[flag]) return;
           window[flag] = true;
+          // The bridge's own call is the only thing guarded. If the native peer is gone,
+          // postMessage throws; unguarded, that reached the page's error listener below, which
+          // called bridge() again. The failure is recorded once per page instead. Errors the
+          // page raises still reach the listener and are reported one-for-one, as before.
+          var failedFlag = '__glomo_${bridgeName}_Failed__';
+          var nativeWarn = (function() {
+            try { return console.warn.bind(console); } catch(e) { return function() {}; }
+          })();
+          var inBridge = false;
           var bridge = function(msg) {
-            if (window.$bridgeName) window.$bridgeName.postMessage(msg);
+            // Anything the peer triggers synchronously from inside its own postMessage, such
+            // as an error event, must not call back into it.
+            if (inBridge) return;
+            inBridge = true;
+            try {
+              if (window.$bridgeName) window.$bridgeName.postMessage(msg);
+            } catch(e) {
+              if (!window[failedFlag]) {
+                window[failedFlag] = true;
+                try { nativeWarn('[GlomoPay] $bridgeName.postMessage failed: ' + e); } catch(ignored) {}
+              }
+            } finally {
+              inBridge = false;
+            }
           };
           var dev = function() { return window.__glomoDevMode__ === true; };
           bridge(JSON.stringify({type:'console',level:'info',message:'GlomoPay Injection Loaded ($bridgeName)'}));

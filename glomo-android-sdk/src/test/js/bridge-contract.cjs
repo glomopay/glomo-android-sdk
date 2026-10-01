@@ -125,6 +125,82 @@ assert.equal(
   0,
   'subframes must not emit bridge.ready',
 );
+// bridge() and the page's error listeners. dispatch() models the worst case the task describes:
+// an exception escaping a listener is reported as a fresh 'error' event. The cap turns a loop
+// into a failed assertion instead of a hang.
+function withPeer(postMessage) {
+  const e = environment();
+  e.warnings = [];
+  e.context.console.warn = (m) => e.warnings.push(String(m));
+  e.window.GlomoPayFlowBridge = {postMessage};
+  e.redispatched = 0;
+  e.dispatch = (name, event) => {
+    try {
+      e.listeners[name]?.(event);
+    } catch (err) {
+      if (++e.redispatched > 50) throw new Error('error listener loop');
+      e.dispatch('error', {message: String(err && err.message)});
+    }
+  };
+  vm.runInContext(script('build', 'GlomoPayFlowBridge'), e.context);
+  return e;
+}
+const pageErrors = (msgs, kind) => msgs.filter(m => m.type === 'webview.error' && m.errorType === kind);
+
+{
+  // A dead peer: every call throws. Bounded calls, no re-dispatch, recorded once.
+  let calls = 0;
+  const e = withPeer(() => { calls++; throw new Error('peer gone'); });
+  const afterLoad = calls;
+  e.dispatch('error', {message: 'page boom'});
+  e.dispatch('unhandledrejection', {reason: 'page rejection'});
+  assert.equal(calls, afterLoad + 2, 'one bridge call per page error, no retries');
+  assert.equal(e.redispatched, 0, 'a bridge failure must never reach the error listener');
+  assert.equal(e.warnings.filter(w => w.includes('postMessage failed')).length, 1, 'recorded once per page');
+  assert.equal(e.window.__glomo_GlomoPayFlowBridge_Failed__, true);
+}
+
+{
+  // A peer that raises an error event synchronously from inside its own postMessage, then
+  // throws: without the re-entrancy guard this recurses without bound.
+  let calls = 0;
+  let e;
+  e = withPeer(() => {
+    calls++;
+    if (e) e.dispatch('error', {message: 'raised by the bridge'});
+    throw new Error('peer gone');
+  });
+  const afterLoad = calls;
+  e.dispatch('error', {message: 'page boom'});
+  assert.equal(calls, afterLoad + 1, 'the bridge must not re-enter itself');
+  assert.equal(e.redispatched, 0);
+}
+
+{
+  // Healthy peer: every page error is still reported one-for-one, nothing is warned.
+  const messages = [];
+  const e = withPeer((raw) => messages.push(JSON.parse(raw)));
+  for (const m of ['a', 'b', 'c']) e.dispatch('error', {message: m});
+  for (const r of ['x', 'y']) e.dispatch('unhandledrejection', {reason: r});
+  assert.deepEqual(pageErrors(messages, 'js_error').map(m => m.message), ['a', 'b', 'c']);
+  assert.deepEqual(pageErrors(messages, 'unhandled_rejection').map(m => m.message), ['x', 'y']);
+  assert.equal(messages.filter(m => m.type === 'bridge.ready').length, 1);
+  assert.equal(e.warnings.length, 0);
+  assert.equal(e.window.__glomo_GlomoPayFlowBridge_Failed__, undefined);
+}
+
+{
+  // A peer that fails once and recovers: later page errors are not swallowed.
+  const messages = [];
+  let failNext = true;
+  const e = withPeer((raw) => {
+    if (failNext) { failNext = false; throw new Error('transient'); }
+    messages.push(JSON.parse(raw));
+  });
+  e.dispatch('error', {message: 'after recovery'});
+  assert.deepEqual(pageErrors(messages, 'js_error').map(m => m.message), ['after recovery']);
+}
+
 const viewport = environment();
 const meta = {setAttribute(name, value) { this[name] = value; }};
 viewport.context.document.head = {};
@@ -136,4 +212,4 @@ assert.ok(meta.content.includes('width=device-width'));
 assert.ok(meta.content.includes('initial-scale=1'));
 assert.equal(viewport.context.document.body.style.zoom, '1');
 vm.runInContext(script('bankViewportFit'), viewport.context);
-console.log('PASS: carousel live signal, rejected shapes, no-signal, early signal, flow opener, bridge readiness/idempotence, and bank viewport normalization');
+console.log('PASS: carousel live signal, rejected shapes, no-signal, early signal, bridge failure containment, page errors one-for-one, flow opener, bridge readiness/idempotence, and bank viewport normalization');
