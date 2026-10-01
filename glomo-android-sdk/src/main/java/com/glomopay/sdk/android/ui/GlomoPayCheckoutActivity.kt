@@ -538,7 +538,6 @@ public class GlomoPayCheckoutActivity : Activity() {
             },
             onPageFinishedCallback = {
                 carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
-                carousel.evaluateJavascript(GlomoPayInjectionScripts.carouselFallback(), null)
             },
             onUrlChangedCallback = {},
             onErrorCallback = { error ->
@@ -570,12 +569,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         carousel.loadUrl(ConfigManager.getCarouselUrl(config))
     }
 
+    // Only the show signal changes anything. No signal leaves the carousel pending and hidden.
     private fun handleEducationCarouselMessage(rawMessage: String) {
-        val hasContent = EducationCarouselContract.parseAvailabilitySignal(rawMessage) ?: return
-        if (hasContent) showEducationCarousel() else {
-            carouselState = EducationCarouselState.NO_CONTENT
-            applyEducationCarouselLayout()
-        }
+        if (EducationCarouselContract.isShowSignal(rawMessage)) showEducationCarousel()
     }
 
     private fun showEducationCarousel() {

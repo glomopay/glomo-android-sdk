@@ -64,7 +64,8 @@ public API changes require a new major release.
   it, with page-start/page-finish fallback for older implementations.
 - Report order HTTP status failures as SDK errors rather than connectivity errors.
 - Close bank overlays on Back; handle predictive Back and allow dismissal during pending payments.
-- Install the bank opener bridge before page scripts where supported and align carousel messages with the checkout contract, including a delayed DOM fallback.
+- Install the bank opener bridge before page scripts where supported.
+- Show the LRS education carousel on the page's actual signal, `{type: 'lrs.has_education_steps', value: true}`, and only on that. 2.0.0 had been reading `{event, hasContent}`, which the page never sends, so the carousel and `Education Steps Shown` could only fire through the DOM fallback. As in the RN SDK, no signal now means no carousel: `value: false` and other shapes are ignored, and the 3-second DOM-polling fallback is removed. A signal sent before the bridge is ready is still delivered.
 - Block external schemes in bank flows and isolate merchant callback exceptions. Merchant exceptions are now reported by type and stack trace, never by message.
 - Fail order detection explicitly instead of guessing the checkout host; exclude API bodies from errors.
 - Accept any 2xx order response as the backend answering; a 2xx body the client cannot parse is reported as a malformed response rather than a status error.

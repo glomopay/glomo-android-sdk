@@ -27,30 +27,65 @@ function environment(hasBodyContent = true) {
       body: {innerText: hasBodyContent ? 'x'.repeat(101) : '', querySelectorAll(){return [];}},
     },
     HTMLFormElement: function(){}, XMLHttpRequest: function(){},
-    setTimeout(fn, delay) { assert.equal(delay, 3000); timers.push(fn); },
+    setTimeout(fn, delay) { timers.push({fn, delay}); },
   });
   context.HTMLFormElement.prototype.submit = function() {};
   context.XMLHttpRequest.prototype.open = function() {};
   return {context, window, messages, timers, listeners};
 }
-for (const value of [true, false]) {
+// The live page's exact signal (glomopay-checkout lrs-carousel.event-emitter.ts). It is the only
+// message that shows the carousel; the page never emits value:false.
+const LIVE_SIGNAL = {type: 'lrs.has_education_steps', value: true};
+const carouselMessages = (e) => e.messages.filter(m => m.type === 'lrs.has_education_steps');
+
+for (const message of [LIVE_SIGNAL, JSON.stringify(LIVE_SIGNAL)]) {
   const e = environment();
   vm.runInContext(script('carousel', 'GlomoCarousel'), e.context);
-  e.window.postMessage({event:'lrs.has_education_steps', hasContent:value});
-  assert.ok(e.messages.length > 0);
-  assert.ok(e.messages.every(m => m.hasContent === value));
-  vm.runInContext(script('carouselFallback'), e.context);
-  const count = e.messages.length;
-  e.timers[0]();
-  assert.equal(e.messages.length, count, 'fallback must respect explicit availability');
+  e.window.postMessage(message);
+  assert.deepEqual(carouselMessages(e), [LIVE_SIGNAL], 'the live signal is forwarded exactly once');
 }
-for (const content of [true, false]) {
-  const e = environment(content);
+
+for (const [label, message] of [
+  ['value false', {type: 'lrs.has_education_steps', value: false}],
+  ['event/hasContent shape', {event: 'lrs.has_education_steps', hasContent: true}],
+  ['string value', {type: 'lrs.has_education_steps', value: 'true'}],
+  ['missing value', {type: 'lrs.has_education_steps'}],
+  ['unrelated type', {type: 'payment.pending', value: true}],
+  ['malformed JSON', '{"type":"lrs.has_education_steps",'],
+  ['plain text', 'hello'],
+]) {
+  const e = environment();
   vm.runInContext(script('carousel', 'GlomoCarousel'), e.context);
-  vm.runInContext(script('carouselFallback'), e.context);
-  e.timers[0]();
-  assert.equal(e.messages[0].hasContent, content);
+  e.window.postMessage(message);
+  assert.equal(carouselMessages(e).length, 0, label + ' must not show the carousel');
 }
+
+{
+  // No signal at all: nothing is forwarded, and there is no timer-driven DOM heuristic.
+  const e = environment();
+  vm.runInContext(script('carousel', 'GlomoCarousel'), e.context);
+  vm.runInContext(script('carousel', 'GlomoCarousel'), e.context);
+  assert.equal(carouselMessages(e).length, 0);
+  assert.equal(e.timers.length, 0, 'the carousel script schedules nothing');
+  assert.ok(!source.includes('fun carouselFallback('), 'the DOM fallback is gone');
+}
+
+{
+  // The page signals before the native bridge exists (the document-start listener catches it);
+  // the next injection, at page start or finish, delivers it once.
+  const e = environment();
+  const peer = e.window.GlomoCarousel;
+  delete e.window.GlomoCarousel;
+  vm.runInContext(script('carousel', 'GlomoCarousel'), e.context);
+  e.window.postMessage(LIVE_SIGNAL);
+  assert.equal(carouselMessages(e).length, 0);
+  e.window.GlomoCarousel = peer;
+  vm.runInContext(script('carousel', 'GlomoCarousel'), e.context);
+  assert.deepEqual(carouselMessages(e), [LIVE_SIGNAL], 'an early signal is delivered once the bridge is ready');
+  vm.runInContext(script('carousel', 'GlomoCarousel'), e.context);
+  assert.equal(carouselMessages(e).length, 1, 'and only once');
+}
+
 const flow = environment();
 vm.runInContext(script('build', 'GlomoPayFlowBridge') + script('flow', 'GlomoPayFlowBridge'), flow.context);
 flow.window.opener.postMessage({type:'payment.pending'});
@@ -101,4 +136,4 @@ assert.ok(meta.content.includes('width=device-width'));
 assert.ok(meta.content.includes('initial-scale=1'));
 assert.equal(viewport.context.document.body.style.zoom, '1');
 vm.runInContext(script('bankViewportFit'), viewport.context);
-console.log('PASS: carousel true/false, DOM fallback, explicit-message precedence, flow opener, bridge readiness/idempotence, and bank viewport normalization');
+console.log('PASS: carousel live signal, rejected shapes, no-signal, early signal, flow opener, bridge readiness/idempotence, and bank viewport normalization');

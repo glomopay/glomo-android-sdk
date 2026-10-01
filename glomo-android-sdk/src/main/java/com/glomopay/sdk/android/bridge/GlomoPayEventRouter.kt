@@ -198,7 +198,7 @@ internal class GlomoPayEventRouter(
                 mapOf("pay_via_bank_status" to payloadData["status"]?.toString()),
             )
             "lrs.has_education_steps" -> {
-                if (EducationCarouselContract.availabilitySignal(payloadData) == true) {
+                if (EducationCarouselContract.isShowSignal(payloadData)) {
                     analytics.track(AnalyticsEvents.EDUCATION_STEPS_SHOWN, mapOf(
                         "source" to payloadData["source"]?.toString(),
                     ))

@@ -124,13 +124,22 @@ class GlomoPayEventRouterTest {
             analytics = analytics,
         )
 
+        // The live page signal, then shapes that must not count.
         router.handleEnvelope(mapOf(
             "type" to "message",
             "data" to mapOf(
-                "event" to "lrs.has_education_steps",
-                "hasContent" to true,
+                "type" to "lrs.has_education_steps",
+                "value" to true,
                 "source" to "checkout",
             ),
+        ))
+        router.handleEnvelope(mapOf(
+            "type" to "message",
+            "data" to mapOf("type" to "lrs.has_education_steps", "value" to false),
+        ))
+        router.handleEnvelope(mapOf(
+            "type" to "message",
+            "data" to mapOf("event" to "lrs.has_education_steps", "hasContent" to true),
         ))
         router.handleEnvelope(mapOf(
             "type" to "message",
