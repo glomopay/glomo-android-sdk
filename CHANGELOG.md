@@ -6,7 +6,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 Starting with 1.0.0, the public API follows Semantic Versioning. Breaking
 public API changes require a new major release.
 
-## Unreleased
+## [2.0.0] - 2026-10-01
 
 ### Breaking
 

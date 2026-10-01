@@ -45,3 +45,4 @@ scratch_*
 *_output*.txt
 *.log
 coverage/
+internal/
