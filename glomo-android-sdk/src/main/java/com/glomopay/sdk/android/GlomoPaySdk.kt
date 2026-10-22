@@ -64,9 +64,9 @@ public class GlomoPayCheckoutHandle internal constructor(private val sessionId: 
      * A request, not a switch: the page decides, against the merchant's dashboard settings. A call
      * made before the checkout has rendered, or after it has finished, is dropped.
      */
-    public fun setColorScheme(scheme: GlomoColorScheme): Unit {
+    public fun setAppColorScheme(scheme: GlomoColorScheme): Unit {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            CheckoutSessionRegistry.get(sessionId)?.requestColorScheme(scheme)
+            CheckoutSessionRegistry.get(sessionId)?.requestAppColorScheme(scheme)
         }
     }
 }
@@ -107,8 +107,8 @@ internal class CheckoutSession(
      * URL already carries what the config said, so the only thing a latched value could do is
      * fight it.
      */
-    fun requestColorScheme(scheme: GlomoColorScheme) {
-        activity.get()?.setColorScheme(scheme)
+    fun requestAppColorScheme(scheme: GlomoColorScheme) {
+        activity.get()?.setAppColorScheme(scheme)
     }
 }
 

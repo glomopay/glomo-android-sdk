@@ -161,18 +161,21 @@ defaults to `GlomoColorScheme.AUTO`.
 **It requests a scheme, it does not force one.** The page decides, against your
 merchant dashboard settings. Setting `DARK` does not guarantee a dark checkout.
 
-**What `AUTO` resolves to here.** The checkout Activity's night mode, so an app
-that overrides its own with `AppCompatDelegate.setDefaultNightMode` or a per-app
-override gets what it set rather than what the system is on. What `AUTO` derives
-from is a per-platform decision and differs across the Glomo SDKs; only `LIGHT`
-and `DARK` mean the same thing everywhere.
+**What `AUTO` resolves to here.** Your app's own night mode: the SDK reads
+`AppCompatDelegate.getDefaultNightMode()` and falls back to the checkout
+Activity's configuration only where the host has expressed no preference
+(`MODE_NIGHT_FOLLOW_SYSTEM`, `MODE_NIGHT_AUTO_BATTERY`). So a light-only app on a
+dark device gets a light checkout, including below API 31 where a per-app
+override does not reach the SDK's own Activity. What `AUTO` derives from is a
+per-platform decision and differs across the Glomo SDKs; only `LIGHT` and `DARK`
+mean the same thing everywhere.
 
 **Changing it mid-checkout is supported**, through the handle:
 
 ```kotlin
 val handle = GlomoPaySdk.startCheckout(context, config, listener)
 // later, without closing or restarting the checkout
-handle.setColorScheme(GlomoColorScheme.DARK)
+handle.setAppColorScheme(GlomoColorScheme.DARK)
 ```
 
 The page is told through the bridge rather than by reloading it, so a payment in
@@ -187,7 +190,9 @@ property.
 
 Android's algorithmic darkening is switched off on every WebView the SDK renders,
 including bank and 3DS pages - the platform must not invert a page that handles
-its own colours, and a bank's page is not ours to recolour either.
+its own colours, and a bank's page is not ours to recolour either. Both the modern
+`setAlgorithmicDarkeningAllowed` and the legacy `setForceDark` are set, since the
+first is ignored by hosts targeting SDK 32 and below.
 
 After Activity recreation, checkout ends instead of replaying an interrupted
 payment page. If the process is still alive, the listener receives an SDK error;

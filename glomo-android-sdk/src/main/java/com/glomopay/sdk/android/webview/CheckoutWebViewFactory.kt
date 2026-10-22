@@ -40,16 +40,17 @@ internal object CheckoutWebViewFactory {
      * page nobody designed. Applied to the bank-flow WebView too, and should be: we send that page
      * no scheme - it is the bank's, not ours - but it must not be algorithmically darkened either.
      *
-     * Two APIs for one behaviour, because which is available depends on the WebView provider's
-     * version rather than the OS: `ALGORITHMIC_DARKENING` is the modern one, `FORCE_DARK` the
-     * legacy. `setForceDark` is deprecated and that is the point - it is the fallback for devices
-     * whose WebView predates the replacement, and minSdk 24 means those exist in the field. If
-     * neither feature is supported there is nothing to switch off.
+     * Both are set where both are supported, never one or the other.
+     * `setAlgorithmicDarkeningAllowed` governs hosts targeting SDK 33 and above and is ignored
+     * below that, where the deprecated `setForceDark` is what the platform still reads. Returning
+     * after the first would leave every targetSdk < 33 host darkened by a WebView modern enough to
+     * support the replacement - which is most of them. `setForceDark` being deprecated is the
+     * point: minSdk 24 means those hosts are in the field.
      */
+    @Suppress("DEPRECATION")
     private fun disableAlgorithmicDarkening(webView: WebView) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
             WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, false)
-            return
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
             WebSettingsCompat.setForceDark(webView.settings, WebSettingsCompat.FORCE_DARK_OFF)

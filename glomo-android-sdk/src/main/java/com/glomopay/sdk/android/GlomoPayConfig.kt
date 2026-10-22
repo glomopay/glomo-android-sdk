@@ -1,7 +1,7 @@
 package com.glomopay.sdk.android
 
 /** Configuration required to start a GlomoPay checkout. */
-public data class GlomoPayConfig public constructor(
+public data class GlomoPayConfig @JvmOverloads public constructor(
     public val publicKey: String,
     public val orderId: String? = null,
     public val subscriptionId: String? = null,
@@ -9,7 +9,7 @@ public data class GlomoPayConfig public constructor(
     /**
      * The colour scheme to request from the checkout page. Defaults to [GlomoColorScheme.AUTO].
      *
-     * Changing it during a live checkout goes through `GlomoPayCheckoutHandle.setColorScheme`,
+     * Changing it during a live checkout goes through `GlomoPayCheckoutHandle.setAppColorScheme`,
      * not through a new config - rebuilding the URL would reload the WebView and lose the payment.
      */
     public val appColorScheme: GlomoColorScheme = GlomoColorScheme.AUTO,
@@ -20,6 +20,7 @@ public data class GlomoPayConfig public constructor(
     public val isSubscription: Boolean
         get() = !subscriptionId.isNullOrEmpty()
 
+    @JvmOverloads
     public fun copyWith(
         publicKey: String = this.publicKey,
         orderId: String? = this.orderId,

@@ -1,6 +1,7 @@
 package com.glomopay.sdk.android
 
 import android.content.res.Configuration
+import androidx.appcompat.app.AppCompatDelegate
 
 /**
  * The colour scheme the host app asks the checkout page to present.
@@ -15,9 +16,9 @@ public enum class GlomoColorScheme {
     /**
      * Follow the host app's night mode. The default.
      *
-     * Resolved from the checkout activity's [Configuration], so an app that overrides its own
-     * night mode - through `AppCompatDelegate.setDefaultNightMode` or a per-app override - gets
-     * what it set rather than what the system is on. That is usually what a merchant means.
+     * Read from `AppCompatDelegate.getDefaultNightMode()` first, falling back to the checkout
+     * activity's [Configuration]. The delegate is what an app sets when it has its own light/dark
+     * toggle, and it is process-wide, so a light-only app on a dark device gets a light checkout.
      *
      * What `AUTO` derives from is a per-platform decision and differs across the Glomo SDKs on
      * purpose; only [LIGHT] and [DARK] are contractual.
@@ -55,9 +56,30 @@ internal fun nightModeOf(uiMode: Int): ResolvedColorScheme =
         ResolvedColorScheme.LIGHT
     }
 
+/**
+ * The host app's night mode, from its own setting where it has one.
+ *
+ * [defaultNightMode] is `AppCompatDelegate.getDefaultNightMode()`: process-wide, so it reports the
+ * host's choice even though the checkout runs in this SDK's own plain Activity. From API 31 that
+ * call also applies a per-app `UiModeManager` override which does reach [uiMode], but below it the
+ * SDK's Activity sees only the system value - which is the case this exists for.
+ *
+ * `MODE_NIGHT_AUTO_BATTERY` and `MODE_NIGHT_FOLLOW_SYSTEM` fall through to [uiMode]: the host has
+ * not picked a side, so the configuration is the best answer available.
+ *
+ * Two ints rather than a Context so it is reachable from a JVM unit test.
+ */
+internal fun hostNightMode(defaultNightMode: Int, uiMode: Int): ResolvedColorScheme =
+    when (defaultNightMode) {
+        AppCompatDelegate.MODE_NIGHT_NO -> ResolvedColorScheme.LIGHT
+        AppCompatDelegate.MODE_NIGHT_YES -> ResolvedColorScheme.DARK
+        else -> nightModeOf(uiMode)
+    }
+
 /** Resolves the merchant's setting against the host app's current night mode. */
-internal fun GlomoColorScheme.resolve(uiMode: Int): ResolvedColorScheme = when (this) {
-    GlomoColorScheme.LIGHT -> ResolvedColorScheme.LIGHT
-    GlomoColorScheme.DARK -> ResolvedColorScheme.DARK
-    GlomoColorScheme.AUTO -> nightModeOf(uiMode)
-}
+internal fun GlomoColorScheme.resolve(defaultNightMode: Int, uiMode: Int): ResolvedColorScheme =
+    when (this) {
+        GlomoColorScheme.LIGHT -> ResolvedColorScheme.LIGHT
+        GlomoColorScheme.DARK -> ResolvedColorScheme.DARK
+        GlomoColorScheme.AUTO -> hostNightMode(defaultNightMode, uiMode)
+    }

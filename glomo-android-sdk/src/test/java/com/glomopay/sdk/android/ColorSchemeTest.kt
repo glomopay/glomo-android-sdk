@@ -1,8 +1,8 @@
 package com.glomopay.sdk.android
 
 import android.content.res.Configuration
+import androidx.appcompat.app.AppCompatDelegate
 import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
-import com.glomopay.sdk.android.webview.ColorSchemeChangeCollector
 import java.net.URI
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,6 +14,9 @@ import kotlin.test.assertTrue
 private const val NIGHT_YES = Configuration.UI_MODE_NIGHT_YES
 private const val NIGHT_NO = Configuration.UI_MODE_NIGHT_NO
 
+/** The host has expressed no preference of its own, so the configuration decides. */
+private const val HOST_UNSET = AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+
 private fun queryParameters(url: String): Map<String, String> =
     URI(url).query.orEmpty().split("&").filter { it.isNotEmpty() }.associate {
         val (key, value) = it.split("=", limit = 2)
@@ -23,24 +26,24 @@ private fun queryParameters(url: String): Map<String, String> =
 class ColorSchemeResolutionTest {
     @Test
     fun explicit_schemes_ignore_the_host() {
-        assertEquals(ResolvedColorScheme.LIGHT, GlomoColorScheme.LIGHT.resolve(NIGHT_YES))
-        assertEquals(ResolvedColorScheme.DARK, GlomoColorScheme.DARK.resolve(NIGHT_NO))
+        assertEquals(ResolvedColorScheme.LIGHT, GlomoColorScheme.LIGHT.resolve(HOST_UNSET, NIGHT_YES))
+        assertEquals(ResolvedColorScheme.DARK, GlomoColorScheme.DARK.resolve(HOST_UNSET, NIGHT_NO))
     }
 
     @Test
     fun auto_follows_the_host_night_mode() {
-        assertEquals(ResolvedColorScheme.DARK, GlomoColorScheme.AUTO.resolve(NIGHT_YES))
-        assertEquals(ResolvedColorScheme.LIGHT, GlomoColorScheme.AUTO.resolve(NIGHT_NO))
+        assertEquals(ResolvedColorScheme.DARK, GlomoColorScheme.AUTO.resolve(HOST_UNSET, NIGHT_YES))
+        assertEquals(ResolvedColorScheme.LIGHT, GlomoColorScheme.AUTO.resolve(HOST_UNSET, NIGHT_NO))
     }
 
     @Test
     fun an_undefined_night_mode_is_light_not_an_error() {
         // UI_MODE_NIGHT_UNDEFINED, and anything else in the other uiMode bits, must not read as
         // dark - the page would go dark on a device that never asked.
-        assertEquals(ResolvedColorScheme.LIGHT, GlomoColorScheme.AUTO.resolve(0))
+        assertEquals(ResolvedColorScheme.LIGHT, GlomoColorScheme.AUTO.resolve(HOST_UNSET, 0))
         assertEquals(
             ResolvedColorScheme.LIGHT,
-            GlomoColorScheme.AUTO.resolve(Configuration.UI_MODE_TYPE_CAR),
+            GlomoColorScheme.AUTO.resolve(HOST_UNSET, Configuration.UI_MODE_TYPE_CAR),
         )
     }
 
@@ -50,7 +53,52 @@ class ColorSchemeResolutionTest {
         // is ours to read.
         assertEquals(
             ResolvedColorScheme.DARK,
-            GlomoColorScheme.AUTO.resolve(Configuration.UI_MODE_TYPE_DESK or NIGHT_YES),
+            GlomoColorScheme.AUTO.resolve(HOST_UNSET, Configuration.UI_MODE_TYPE_DESK or NIGHT_YES),
+        )
+    }
+
+    @Test
+    fun a_light_only_app_on_a_dark_device_gets_a_light_checkout() {
+        // The case the activity's own uiMode gets wrong below API 31: the host has called
+        // AppCompatDelegate.setDefaultNightMode(MODE_NIGHT_NO), the system is dark, and the SDK
+        // runs in a plain Activity that only sees the system value.
+        assertEquals(
+            ResolvedColorScheme.LIGHT,
+            GlomoColorScheme.AUTO.resolve(AppCompatDelegate.MODE_NIGHT_NO, NIGHT_YES),
+        )
+    }
+
+    @Test
+    fun a_dark_only_app_on_a_light_device_gets_a_dark_checkout() {
+        assertEquals(
+            ResolvedColorScheme.DARK,
+            GlomoColorScheme.AUTO.resolve(AppCompatDelegate.MODE_NIGHT_YES, NIGHT_NO),
+        )
+    }
+
+    @Test
+    fun a_host_with_no_preference_falls_back_to_the_configuration() {
+        // FOLLOW_SYSTEM and AUTO_BATTERY both mean the host has not picked a side. On API 31+ the
+        // per-app override makes uiMode authoritative anyway; below it this is the best available.
+        for (mode in listOf(
+            AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM,
+            AppCompatDelegate.MODE_NIGHT_AUTO_BATTERY,
+            AppCompatDelegate.MODE_NIGHT_UNSPECIFIED,
+        )) {
+            assertEquals(ResolvedColorScheme.DARK, GlomoColorScheme.AUTO.resolve(mode, NIGHT_YES))
+            assertEquals(ResolvedColorScheme.LIGHT, GlomoColorScheme.AUTO.resolve(mode, NIGHT_NO))
+        }
+    }
+
+    @Test
+    fun an_explicit_scheme_ignores_the_host_night_mode_too() {
+        assertEquals(
+            ResolvedColorScheme.LIGHT,
+            GlomoColorScheme.LIGHT.resolve(AppCompatDelegate.MODE_NIGHT_YES, NIGHT_YES),
+        )
+        assertEquals(
+            ResolvedColorScheme.DARK,
+            GlomoColorScheme.DARK.resolve(AppCompatDelegate.MODE_NIGHT_NO, NIGHT_NO),
         )
     }
 
@@ -122,19 +170,14 @@ class ColorSchemeInjectionTest {
     }
 
     @Test
-    fun it_parks_the_value_before_calling() {
+    fun it_sends_nothing_but_the_setter_call() {
+        // No parked global: no page reads one, so it would be a contract with no consumer. No
+        // read-back either - a flag that is true whenever the setter returned says nothing about
+        // whether the page changed, because the page weighs the request against the merchant's
+        // own dashboard settings.
         val script = GlomoPayInjectionScripts.colorScheme(ResolvedColorScheme.DARK)
-        val beforeCall = script.substringBefore("glomoSetColorScheme(")
-        assertTrue("window.__glomoColorScheme__ = 'dark';" in beforeCall)
-    }
-
-    @Test
-    fun it_evaluates_to_whether_the_call_took() {
-        // Read back by evaluateJavascript, so the applied flag cannot race the page defining its
-        // setter a moment later.
-        val script = GlomoPayInjectionScripts.colorScheme(ResolvedColorScheme.DARK)
-        assertTrue("return applied;" in script)
-        assertTrue("applied = true;" in script)
+        assertFalse("__glomoColorScheme" in script)
+        assertFalse("return" in script)
     }
 
     @Test
@@ -156,87 +199,26 @@ class ColorSchemeInjectionTest {
     }
 }
 
-class ColorSchemeChangeCollectorTest {
-    private var applied: List<String>? = null
-    private var unprobed: List<String>? = null
-    private var completions = 0
-
-    private fun collector(vararg targets: String) =
-        ColorSchemeChangeCollector(targets.toList()) { a, u ->
-            applied = a
-            unprobed = u
-            completions++
-        }
-
+class ColorSchemeOriginTest {
     @Test
-    fun it_reports_once_every_target_has_answered() {
-        val collector = collector("main", "carousel")
-
-        collector.record("main", true)
-        assertNull(applied)
-
-        collector.record("carousel", false)
-        assertEquals(listOf("main"), applied)
-        assertEquals(emptyList(), unprobed)
+    fun an_origin_is_scheme_host_and_port() {
+        assertEquals("https://checkout.glomopay.com", ConfigManager.originOf("https://checkout.glomopay.com/?a=1"))
+        assertEquals("http://localhost:4444", ConfigManager.originOf("http://localhost:4444/x"))
     }
 
     @Test
-    fun a_page_that_refused_is_a_miss_not_an_unprobed_surface() {
-        // The distinction is the whole point: a miss is a web-side slip, unprobed is our own
-        // probe failing. Conflating them would let a torn-down WebView read as a site outage.
-        val collector = collector("main", "carousel")
-
-        collector.record("main", true)
-        collector.record("carousel", false)
-
-        assertEquals(listOf("main"), applied)
-        assertEquals(emptyList(), unprobed)
+    fun a_different_host_is_a_different_origin() {
+        // The gate on re-applying a scheme after a page load: a bank page reached by redirect is
+        // not ours to theme.
+        assertFalse(
+            ConfigManager.originOf("https://checkout.glomopay.com/") ==
+                ConfigManager.originOf("https://acs.examplebank.com/3ds"),
+        )
     }
 
     @Test
-    fun a_target_that_never_answered_is_unprobed() {
-        val collector = collector("main", "carousel")
-
-        collector.record("main", true)
-        collector.timeOut()
-
-        assertEquals(listOf("main"), applied)
-        assertEquals(listOf("carousel"), unprobed)
-    }
-
-    @Test
-    fun a_timeout_after_everything_answered_does_not_report_twice() {
-        val collector = collector("main")
-
-        collector.record("main", true)
-        collector.timeOut()
-
-        assertEquals(1, completions)
-    }
-
-    @Test
-    fun a_late_answer_after_reporting_is_ignored() {
-        val collector = collector("main", "carousel")
-
-        collector.timeOut()
-        collector.record("main", true)
-
-        assertEquals(1, completions)
-        assertEquals(emptyList(), applied)
-        assertEquals(listOf("main", "carousel"), unprobed)
-    }
-
-    @Test
-    fun the_report_is_built_from_what_we_asked_not_from_what_arrived() {
-        // The flow WebView is never a target - it holds the bank's page. If the report were built
-        // from the answers map rather than from the target list, a stray answer would put it in
-        // the row and claim we themed a bank page.
-        val collector = collector("main")
-
-        collector.record("flow", true)
-        collector.record("main", true)
-
-        assertEquals(listOf("main"), applied)
-        assertEquals(emptyList(), unprobed)
+    fun a_non_http_url_has_no_origin_rather_than_a_fabricated_one() {
+        assertNull(ConfigManager.originOf("about:blank"))
+        assertNull(ConfigManager.originOf("not a url"))
     }
 }

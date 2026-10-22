@@ -55,13 +55,17 @@ public object ConfigManager {
         orderType: String = "standard",
     ): Set<String> = checkoutDocumentStartOriginRules(getCheckoutUrl(config, orderType))
 
-    internal fun checkoutDocumentStartOriginRules(url: String): Set<String> {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return emptySet()
+    internal fun checkoutDocumentStartOriginRules(url: String): Set<String> =
+        originOf(url)?.let { setOf(it) } ?: emptySet()
+
+    /** `scheme://host[:port]`, or null for anything that is not an http(s) URL. */
+    internal fun originOf(url: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
         val scheme = uri.scheme?.lowercase()
-        val host = uri.host?.lowercase() ?: return emptySet()
-        if (scheme != "https" && scheme != "http") return emptySet()
+        val host = uri.host?.lowercase() ?: return null
+        if (scheme != "https" && scheme != "http") return null
         val port = uri.port.takeIf { it >= 0 }?.let { ":$it" } ?: ""
-        return setOf("$scheme://$host$port")
+        return "$scheme://$host$port"
     }
 
     /** [colorScheme] carries the same resolved value on the same param name - the carousel is on

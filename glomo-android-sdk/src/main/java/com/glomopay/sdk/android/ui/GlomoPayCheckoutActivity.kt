@@ -26,7 +26,6 @@ import com.glomopay.sdk.android.GlomoPayApiClient
 import com.glomopay.sdk.android.GlomoColorScheme
 import com.glomopay.sdk.android.GlomoPayConfig
 import com.glomopay.sdk.android.ResolvedColorScheme
-import com.glomopay.sdk.android.nightModeOf
 import com.glomopay.sdk.android.resolve
 import com.glomopay.sdk.android.GlomoPayResult
 import com.glomopay.sdk.android.GlomoPayHttpStatusError
@@ -65,7 +64,6 @@ import com.glomopay.sdk.android.state.CheckoutUiState
 import com.glomopay.sdk.android.state.withLoadingProgress
 import com.glomopay.sdk.android.webview.CheckoutWebViewClient
 import com.glomopay.sdk.android.webview.CheckoutWebViewFactory
-import com.glomopay.sdk.android.webview.ColorSchemeChangeCollector
 
 /** Native main checkout host. JS events are attached in the bridge phase. */
 public class GlomoPayCheckoutActivity : Activity() {
@@ -88,6 +86,12 @@ public class GlomoPayCheckoutActivity : Activity() {
     private var currentOrderType: String = "standard"
     private var mainErrorPanel: View? = null
     private var currentUrl: String? = null
+
+    /**
+     * The URL the SDK asked the main WebView to load, as distinct from [currentUrl], which follows
+     * every navigation. The colour scheme is only pushed to a page on this URL's origin.
+     */
+    private var loadedCheckoutUrl: String? = null
     private var lastMainAnalyticsUrl: String? = null
     private var lastRedirectAnalyticsUrl: String? = null
     private var uiState: CheckoutUiState = CheckoutUiState.Loading
@@ -123,9 +127,6 @@ public class GlomoPayCheckoutActivity : Activity() {
      * told from a configuration change that moved something else - locale, font scale, a rotation.
      */
     private var resolvedColorScheme: ResolvedColorScheme = ResolvedColorScheme.LIGHT
-    private var colorSchemeChange: ColorSchemeChangeCollector? = null
-    private var checkoutStartedAt = 0L
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var supportsDocumentStartInjection = false
     private var mainDocumentStartInjectionInstalled = false
     private var flowErrorPanel: View? = null
@@ -200,9 +201,7 @@ public class GlomoPayCheckoutActivity : Activity() {
             return
         }
 
-        checkoutStartedAt = android.os.SystemClock.elapsedRealtime()
-        resolvedColorScheme = config.appColorScheme.resolve(resources.configuration.uiMode)
-        recordColorSchemeContext()
+        resolvedColorScheme = resolveColorScheme()
 
         buildContentView()
         startOpenWatchdog()
@@ -235,6 +234,7 @@ public class GlomoPayCheckoutActivity : Activity() {
                     analytics.track(AnalyticsEvents.NAVIGATION_FINISHED, navigationProperties(url))
                     updateState(CheckoutUiState.Content)
                     if (!mainDocumentStartInjectionInstalled) evaluateInjection()
+                    pushColorScheme(webView, url, loadedCheckoutUrl)
                 },
                 onUrlChangedCallback = { url ->
                     currentUrl = url
@@ -413,6 +413,7 @@ public class GlomoPayCheckoutActivity : Activity() {
 
         analytics.track(AnalyticsEvents.CHECKOUT_STARTED)
         currentUrl = url
+        loadedCheckoutUrl = url
         advanceOpenStep(com.glomopay.sdk.android.state.CheckoutOpenStep.URL_RESOLVED)
         installMainDocumentStartInjection(url)
         startRenderWatchdog()
@@ -546,22 +547,38 @@ public class GlomoPayCheckoutActivity : Activity() {
 
     private fun mainInjectionScript(): String =
         "window.__glomoDevMode__ = ${com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD};" +
-            GlomoPayInjectionScripts.main() +
-            // Appended rather than evaluated separately, so the existing document-start and
-            // page-finished paths re-apply the scheme after every reload and bank return with no
-            // new plumbing. Reads the field, so a reload after a change carries the current value.
-            GlomoPayInjectionScripts.colorScheme(resolvedColorScheme)
+            GlomoPayInjectionScripts.main()
 
-    private fun carouselInjectionScript(): String =
-        GlomoPayInjectionScripts.carousel() + GlomoPayInjectionScripts.colorScheme(resolvedColorScheme)
-
-    private fun recordColorSchemeContext() {
-        analytics.updateColorScheme(
-            colorScheme = resolvedColorScheme.wireName,
-            appColorScheme = config.appColorScheme.name.lowercase(),
-            deviceColorScheme = nightModeOf(resources.configuration.uiMode).wireName,
-        )
+    /**
+     * Deliberately not part of [mainInjectionScript].
+     *
+     * That string is captured once by `addDocumentStartJavaScript` and would pin the scheme that
+     * was current when the checkout opened. It would also run at document start, where
+     * `glomoSetColorScheme` does not exist yet - so it would do nothing even when fresh.
+     */
+    private fun pushColorScheme(webView: android.webkit.WebView, loadedUrl: String, sourceUrl: String?) {
+        if (!sameOrigin(loadedUrl, sourceUrl)) return
+        webView.evaluateJavascript(GlomoPayInjectionScripts.colorScheme(resolvedColorScheme), null)
     }
+
+    /**
+     * Whether the page that just loaded is the one the SDK sent the WebView to.
+     *
+     * Compared against our own URL rather than a domain list, so a `server` override still themes
+     * while a bank page reached by redirect never does.
+     */
+    private fun sameOrigin(loadedUrl: String, sourceUrl: String?): Boolean {
+        val source = sourceUrl ?: return false
+        val origin = ConfigManager.originOf(loadedUrl) ?: return false
+        return origin == ConfigManager.originOf(source)
+    }
+
+    private fun resolveColorScheme(
+        uiMode: Int = resources.configuration.uiMode,
+    ): ResolvedColorScheme = config.appColorScheme.resolve(
+        androidx.appcompat.app.AppCompatDelegate.getDefaultNightMode(),
+        uiMode,
+    )
 
     /**
      * The host app's night mode changed while the checkout is open.
@@ -572,13 +589,13 @@ public class GlomoPayCheckoutActivity : Activity() {
      */
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
-        applyColorScheme(config.appColorScheme.resolve(newConfig.uiMode))
+        applyColorScheme(resolveColorScheme(newConfig.uiMode))
     }
 
-    /** The merchant changed the scheme through `GlomoPayCheckoutHandle.setColorScheme`. */
-    internal fun setColorScheme(scheme: GlomoColorScheme) {
+    /** The merchant changed the scheme through `GlomoPayCheckoutHandle.setAppColorScheme`. */
+    internal fun setAppColorScheme(scheme: GlomoColorScheme) {
         config = config.copyWith(appColorScheme = scheme)
-        applyColorScheme(scheme.resolve(resources.configuration.uiMode))
+        applyColorScheme(resolveColorScheme())
     }
 
     /**
@@ -595,40 +612,19 @@ public class GlomoPayCheckoutActivity : Activity() {
         if (finished || resolved == resolvedColorScheme) return
         val previous = resolvedColorScheme
         resolvedColorScheme = resolved
-        recordColorSchemeContext()
-
-        val targets = buildMap<String, android.webkit.WebView> {
-            if (currentUrl != null) put("main", webView)
-            carouselWebView?.let { put("carousel", it) }
-        }
-        if (targets.isEmpty()) return
 
         val script = GlomoPayInjectionScripts.colorScheme(resolved)
-        val collector = ColorSchemeChangeCollector(targets.keys.toList()) { applied, unprobed ->
-            colorSchemeChange = null
-            analytics.track(
-                AnalyticsEvents.COLOR_SCHEME_CHANGED,
-                mapOf(
-                    "previous_color_scheme" to previous.wireName,
-                    "webviews" to targets.keys.toList(),
-                    "applied" to applied,
-                    "unprobed" to unprobed.takeIf { it.isNotEmpty() },
-                    "elapsed_ms" to (android.os.SystemClock.elapsedRealtime() - checkoutStartedAt),
-                ),
-            )
-        }
-        colorSchemeChange = collector
+        if (currentUrl != null) webView.evaluateJavascript(script, null)
+        carouselWebView?.evaluateJavascript(script, null)
 
-        targets.forEach { (name, target) ->
-            target.evaluateJavascript(script) { result ->
-                collector.record(name, result == "true")
-            }
-        }
-        // A WebView that never answers must not hold the row forever. Whatever has not arrived by
-        // then is reported as unprobed, which is not the same as the page having refused.
-        mainHandler.postDelayed({
-            if (colorSchemeChange === collector) collector.timeOut()
-        }, COLOR_SCHEME_REPORT_WINDOW_MS)
+        analytics.track(
+            AnalyticsEvents.COLOR_SCHEME_CHANGED,
+            mapOf(
+                "color_scheme" to resolved.wireName,
+                "previous_color_scheme" to previous.wireName,
+                "app_color_scheme" to config.appColorScheme.name.lowercase(),
+            ),
+        )
     }
 
     private fun prepareEducationCarousel(orderType: String) {
@@ -637,12 +633,14 @@ public class GlomoPayCheckoutActivity : Activity() {
         if (currentOrderType != "lrs" || config.isSubscription) return
 
         val carousel = CheckoutWebViewFactory.create(this)
+        val carouselUrl = ConfigManager.getCarouselUrl(config, resolvedColorScheme)
         carousel.webViewClient = CheckoutWebViewClient(
             onPageStartedCallback = {
-                carousel.evaluateJavascript(carouselInjectionScript(), null)
+                carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
             },
-            onPageFinishedCallback = {
-                carousel.evaluateJavascript(carouselInjectionScript(), null)
+            onPageFinishedCallback = { url ->
+                carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
+                pushColorScheme(carousel, url, carouselUrl)
             },
             onUrlChangedCallback = {},
             onErrorCallback = { error ->
@@ -666,7 +664,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(
                 carousel,
-                carouselInjectionScript(),
+                GlomoPayInjectionScripts.carousel(),
                 setOf("*"),
             )
         }
@@ -772,7 +770,10 @@ public class GlomoPayCheckoutActivity : Activity() {
         mainErrorPanel?.visibility = View.GONE
         updateState(CheckoutUiState.Loading)
         prepareEducationCarousel(currentOrderType)
-        val retryUrl = currentUrl ?: ConfigManager.getCheckoutUrl(config, currentOrderType)
+        // Rebuilt rather than replayed: `currentUrl` carries the scheme that was current when the
+        // checkout opened, and a Retry after a host theme change would put it back.
+        val retryUrl = ConfigManager.getCheckoutUrl(config, currentOrderType, resolvedColorScheme)
+        loadedCheckoutUrl = retryUrl
         installMainDocumentStartInjection(retryUrl)
         webView.loadUrl(retryUrl)
     }
@@ -1004,10 +1005,6 @@ public class GlomoPayCheckoutActivity : Activity() {
             backCallback?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
         }
         checkoutScope.cancel()
-        // A change still waiting on its pages dies with them: the row would describe a checkout
-        // that no longer exists, and the posted callback would outlive the WebViews it asked.
-        colorSchemeChange = null
-        mainHandler.removeCallbacksAndMessages(null)
         filePicker.destroy()
         destroyEducationCarousel()
         if (::webView.isInitialized) {
@@ -1108,13 +1105,6 @@ public class GlomoPayCheckoutActivity : Activity() {
         public const val EXTRA_SESSION_ID: String = "com.glomopay.sdk.android.SESSION_ID"
         private val SUPPORTED_ORDER_TYPES = setOf("auto", "standard", "lrs")
         private const val RENDER_TIMEOUT_MS = 15_000L
-
-        /**
-         * How long a colour-scheme change waits for the pages to answer before the row is sent
-         * without them. Slack rather than a budget - `evaluateJavascript` answers in a frame or
-         * two - so a WebView torn down mid-change cannot strand the event.
-         */
-        private const val COLOR_SCHEME_REPORT_WINDOW_MS = 400L
         private val OPEN_TIMEOUT_MS =
             GlomoPayApiClient.totalRequestTimeoutMs + RENDER_TIMEOUT_MS + 5_000L
 

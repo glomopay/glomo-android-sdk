@@ -12,9 +12,10 @@ public API changes require a new major release.
 
 - `GlomoPayConfig.appColorScheme` (`GlomoColorScheme.AUTO` | `LIGHT` | `DARK`, default `AUTO`)
   asks the Glomo checkout page for a colour scheme. It requests rather than forces: the page
-  decides, against your merchant dashboard settings. `AUTO` follows the checkout Activity's night
-  mode, so an app that overrides its own gets what it set.
-- `GlomoPayCheckoutHandle.setColorScheme(GlomoColorScheme)` changes the scheme of a checkout that
+  decides, against your merchant dashboard settings. `AUTO` follows your app's own night mode
+  (`AppCompatDelegate.getDefaultNightMode()`, falling back to the configuration), so a light-only
+  app on a dark device gets a light checkout.
+- `GlomoPayCheckoutHandle.setAppColorScheme(GlomoColorScheme)` changes the scheme of a checkout that
   is already open. The page is told through the bridge rather than reloaded, so a payment in
   flight survives the change. A host night-mode change reaches an open checkout on its own while
   the scheme is `AUTO`.
@@ -30,11 +31,11 @@ public API changes require a new major release.
 ### Binary compatibility
 
 - Adding `appColorScheme` to `GlomoPayConfig` rewrites its constructor, `copy`, `copyWith` and
-  their `$default` bridges. Source-compatible - the parameter is defaulted and goes last, so
-  existing call sites compile unchanged - but any **pre-compiled** artifact linking against the
-  2.0.0 constructor must be rebuilt. An ordinary app rebuilds from source and is unaffected.
-  This is the reason the property ships in the same release as the rest of the colour-scheme
-  work rather than following it.
+  their `$default` bridges. Source-compatible in both languages: the parameter is defaulted and
+  goes last, so Kotlin call sites compile unchanged, and the constructor and `copyWith` carry
+  `@JvmOverloads` so Java's existing four-argument forms still resolve. Any **pre-compiled**
+  artifact linking against the 2.0.0 `$default` bridges must still be rebuilt; an ordinary app
+  rebuilds from source and is unaffected.
 
 ## [2.0.0] - 2026-10-01
 
