@@ -12,9 +12,10 @@ public API changes require a new major release.
 
 - `GlomoPayConfig.appColorScheme` (`GlomoColorScheme.AUTO` | `LIGHT` | `DARK`, default `AUTO`)
   asks the Glomo checkout page for a colour scheme. It requests rather than forces: the page
-  decides, against your merchant dashboard settings. `AUTO` follows your app's own night mode
-  (`AppCompatDelegate.getDefaultNightMode()`, falling back to the configuration), so a light-only
-  app on a dark device gets a light checkout.
+  decides, against your merchant dashboard settings. `AUTO` follows your app's own appearance -
+  `AppCompatDelegate.getDefaultNightMode()` where you have set one, then your theme's
+  `isLightTheme`, then the device - so a light-only app on a dark device gets a light checkout
+  whether or not it has ever called `setDefaultNightMode`.
 - `GlomoPayCheckoutHandle.setAppColorScheme(GlomoColorScheme)` changes the scheme of a checkout that
   is already open. The page is told through the bridge rather than reloaded, so a payment in
   flight survives the change. A host night-mode change reaches an open checkout on its own while

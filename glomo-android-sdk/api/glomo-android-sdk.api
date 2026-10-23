@@ -296,6 +296,7 @@ public final class com/glomopay/sdk/android/state/CheckoutUiState$LoadingProgres
 public final class com/glomopay/sdk/android/ui/GlomoPayCheckoutActivity : android/app/Activity {
 	public static final field Companion Lcom/glomopay/sdk/android/ui/GlomoPayCheckoutActivity$Companion;
 	public static final field EXTRA_APP_COLOR_SCHEME Ljava/lang/String;
+	public static final field EXTRA_HOST_THEME_IS_LIGHT Ljava/lang/String;
 	public static final field EXTRA_ORDER_ID Ljava/lang/String;
 	public static final field EXTRA_ORDER_TYPE Ljava/lang/String;
 	public static final field EXTRA_PUBLIC_KEY Ljava/lang/String;

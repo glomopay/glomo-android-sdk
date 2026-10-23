@@ -161,14 +161,25 @@ defaults to `GlomoColorScheme.AUTO`.
 **It requests a scheme, it does not force one.** The page decides, against your
 merchant dashboard settings. Setting `DARK` does not guarantee a dark checkout.
 
-**What `AUTO` resolves to here.** Your app's own night mode: the SDK reads
-`AppCompatDelegate.getDefaultNightMode()` and falls back to the checkout
-Activity's configuration only where the host has expressed no preference
-(`MODE_NIGHT_FOLLOW_SYSTEM`, `MODE_NIGHT_AUTO_BATTERY`). So a light-only app on a
-dark device gets a light checkout, including below API 31 where a per-app
-override does not reach the SDK's own Activity. What `AUTO` derives from is a
-per-platform decision and differs across the Glomo SDKs; only `LIGHT` and `DARK`
-mean the same thing everywhere.
+**What `AUTO` resolves to here.** Your app's own appearance, from the most
+specific source that can answer:
+
+1. `AppCompatDelegate.getDefaultNightMode()`, if you have set one.
+2. Otherwise your theme's `isLightTheme`, read from the context you launch the
+   checkout with.
+3. Otherwise the device configuration.
+
+Step 2 is what makes a light-only app on a dark device get a light checkout. It
+is needed because `MODE_NIGHT_FOLLOW_SYSTEM` is the *default* return of step 1,
+so an app that has never called `setDefaultNightMode` is indistinguishable there
+from one that asked to follow the system. A `DayNight` theme still tracks the
+device, because `isLightTheme` resolves per configuration.
+
+If your theme defines no `isLightTheme` - unusual, but possible with a custom
+theme that does not inherit from a platform or Material parent - the SDK falls
+through to the device. What `AUTO` derives from is a per-platform decision and
+differs across the Glomo SDKs; only `LIGHT` and `DARK` mean the same thing
+everywhere.
 
 **Changing it mid-checkout is supported**, through the handle:
 
