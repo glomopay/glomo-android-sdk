@@ -2,6 +2,7 @@ package com.glomopay.sdk.android.webview
 
 import android.annotation.SuppressLint
 import android.content.Context
+import androidx.annotation.ColorInt
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -9,10 +10,16 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 
 internal object CheckoutWebViewFactory {
+    /**
+     * [backgroundColor] is what shows between a load starting and the page painting, so it is the
+     * SDK's chrome rather than the page's - the caller passes the palette's surface. The bank-flow
+     * WebView gets it too: the bank's page inside it is never themed, but this is the ground the
+     * loading label lifts off, and leaving it white would put a white flash under a dark overlay.
+     */
     @SuppressLint("SetJavaScriptEnabled")
     @Suppress("DEPRECATION")
-    fun create(context: Context): WebView = WebView(context).apply {
-        setBackgroundColor(android.graphics.Color.WHITE)
+    fun create(context: Context, @ColorInt backgroundColor: Int): WebView = WebView(context).apply {
+        setBackgroundColor(backgroundColor)
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true

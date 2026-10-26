@@ -24,6 +24,15 @@ public API changes require a new major release.
 
 ### Changed
 
+- Setting `appColorScheme` to `DARK` now also darkens the screens the SDK draws itself - the bar
+  and back control over a bank page, the loading screen, and the connection-error panel - so the
+  frame matches the checkout inside it. `LIGHT` keeps them light, and so does `AUTO`: the page may
+  still answer light against your dashboard settings, and a dark frame around a light checkout
+  reads as a defect. There is no separate setting, so the frame and the page cannot be configured
+  into disagreeing.
+- The connection-error panel's Retry and Cancel no longer take their colours from your app's
+  theme. They were the one place a host theme could still reach the SDK's own controls, and
+  Cancel is the only way out when the error is not recoverable.
 - Android WebView algorithmic darkening is now explicitly off on every page the SDK renders,
   including bank and 3DS pages. Previously the platform could invert a page that handles its own
   colours. Nothing to configure.

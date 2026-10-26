@@ -3,6 +3,7 @@ package com.glomopay.sdk.android.ui
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -135,6 +136,20 @@ public class GlomoPayCheckoutActivity : Activity() {
     private var supportsDocumentStartInjection = false
     private var mainDocumentStartInjectionInstalled = false
     private var flowErrorPanel: View? = null
+
+    /**
+     * The palette the SDK's own chrome paints with, from `config.appColorScheme` rather than from
+     * [resolvedColorScheme] - see [SdkColors.forScheme] for why `auto` must not darken the frame.
+     *
+     * Seeded in [onCreate] before any view is built, and moved only by
+     * [setAppColorScheme]; a host night-mode change reaches [onConfigurationChanged] and
+     * deliberately leaves it alone.
+     */
+    private var chromeColors: SdkColors = SdkColors.LIGHT
+
+    /** Held so [applyChromeColors] can repaint them; the rest of the flow chrome already is. */
+    private var flowToolbar: View? = null
+    private var flowBackButton: ImageButton? = null
     private var backCallback: android.window.OnBackInvokedCallback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -207,6 +222,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
 
         resolvedColorScheme = resolveColorScheme()
+        chromeColors = SdkColors.forScheme(config.appColorScheme)
 
         buildContentView()
         startOpenWatchdog()
@@ -223,7 +239,7 @@ public class GlomoPayCheckoutActivity : Activity() {
     private fun buildContentView() {
         supportsDocumentStartInjection =
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
-        webView = CheckoutWebViewFactory.create(this).apply {
+        webView = CheckoutWebViewFactory.create(this, chromeColors.surface).apply {
             webViewClient = CheckoutWebViewClient(
                 onPageStartedCallback = { url ->
                     currentUrl = url
@@ -256,13 +272,16 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
 
         rootView = FrameLayout(this)
+        // The system-bar padding below exposes this view, and without a background that strip
+        // shows the host app's window colour rather than the checkout's.
+        rootView.setBackgroundColor(chromeColors.surface)
         applySystemBarInsets(rootView)
         rootView.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
         loadingLabel = TextView(this).apply {
             text = getString(R.string.glomopay_loading_checkout)
-            setTextColor(Color.DKGRAY)
-            setBackgroundColor(Color.WHITE)
+            setTextColor(chromeColors.textSecondary)
+            setBackgroundColor(chromeColors.surface)
             gravity = Gravity.CENTER
             visibility = View.VISIBLE
         }
@@ -616,7 +635,71 @@ public class GlomoPayCheckoutActivity : Activity() {
     /** The merchant changed the scheme through `GlomoPayCheckoutHandle.setAppColorScheme`. */
     internal fun setAppColorScheme(scheme: GlomoColorScheme) {
         config = config.copyWith(appColorScheme = scheme)
+        applyChromeColors(SdkColors.forScheme(scheme))
         applyColorScheme(resolveColorScheme())
+    }
+
+    /**
+     * Repaints the chrome after the merchant moved `appColorScheme`.
+     *
+     * Separate from [applyColorScheme], which is about the *page*. Two differences, both
+     * load-bearing: this is keyed off the merchant's setting rather than the resolved scheme, so
+     * `auto` -> `dark` on an already-dark host still moves the frame even though the page sees no
+     * change; and it reaches the flow overlay, which the page path deliberately never touches.
+     *
+     * Only what is on screen is repainted. Anything built later reads [chromeColors] at
+     * construction.
+     */
+    private fun applyChromeColors(colors: SdkColors) {
+        if (finished || colors === chromeColors) return
+        chromeColors = colors
+
+        rootView.setBackgroundColor(colors.surface)
+        webView.setBackgroundColor(colors.surface)
+        loadingLabel.setTextColor(colors.textSecondary)
+        loadingLabel.setBackgroundColor(colors.surface)
+        carouselWebView?.setBackgroundColor(colors.surface)
+
+        flowOverlay?.setBackgroundColor(colors.surface)
+        flowToolbar?.setBackgroundColor(colors.surface)
+        flowBackButton?.imageTintList = ColorStateList.valueOf(colors.icon)
+        flowWebView?.setBackgroundColor(colors.surface)
+        flowLoadingLabel?.let {
+            it.setTextColor(colors.textSecondary)
+            it.setBackgroundColor(colors.surface)
+        }
+
+        // The error panels are rebuilt rather than re-walked: each is a LinearLayout of views
+        // this class does not hold references to, and holding five more fields to recolour a
+        // screen that is almost never up when the scheme moves is the worse trade.
+        rebuildErrorPanels()
+    }
+
+    private fun rebuildErrorPanels() {
+        mainErrorPanel?.let { old ->
+            // Index-preserving, not append: the flow overlay is a later child of the same
+            // FrameLayout, so re-adding the panel at the end would lift it over a bank page.
+            val index = rootView.indexOfChild(old)
+            val wasVisible = old.visibility
+            rootView.removeView(old)
+            val panel = createErrorPanel()
+            panel.visibility = wasVisible
+            mainErrorPanel = panel
+            rootView.addView(panel, index, FrameLayout.LayoutParams(-1, -1))
+        }
+        flowErrorPanel?.let { old ->
+            val flow = flowWebView ?: return@let
+            val loading = flowLoadingLabel ?: return@let
+            val parent = old.parent as? ViewGroup ?: return@let
+            val index = parent.indexOfChild(old)
+            val wasVisible = old.visibility
+            val params = old.layoutParams
+            parent.removeView(old)
+            val panel = createFlowErrorPanel(flow, loading)
+            panel.visibility = wasVisible
+            flowErrorPanel = panel
+            parent.addView(panel, index, params)
+        }
     }
 
     /**
@@ -657,7 +740,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         currentOrderType = orderType.lowercase()
         if (currentOrderType != "lrs" || config.isSubscription) return
 
-        val carousel = CheckoutWebViewFactory.create(this)
+        val carousel = CheckoutWebViewFactory.create(this, chromeColors.surface)
         val carouselUrl = ConfigManager.getCarouselUrl(config, resolvedColorScheme)
         loadedCarouselUrl = carouselUrl
         currentCarouselUrl = null
@@ -754,19 +837,19 @@ public class GlomoPayCheckoutActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
         setPadding(dp(24), dp(24), dp(24), dp(24))
-        setBackgroundColor(Color.WHITE)
+        setBackgroundColor(chromeColors.surface)
         visibility = View.GONE
 
         val title = TextView(this@GlomoPayCheckoutActivity).apply {
             text = getString(R.string.glomopay_connection_error)
             textSize = 20f
-            setTextColor(Color.DKGRAY)
+            setTextColor(chromeColors.textSecondary)
             gravity = Gravity.CENTER
         }
         val message = TextView(this@GlomoPayCheckoutActivity).apply {
             text = getString(messageResource)
             textSize = 14f
-            setTextColor(Color.GRAY)
+            setTextColor(chromeColors.textTertiary)
             gravity = Gravity.CENTER
             setPadding(0, dp(12), 0, dp(24))
         }
@@ -774,12 +857,19 @@ public class GlomoPayCheckoutActivity : Activity() {
             gravity = Gravity.CENTER
             orientation = LinearLayout.HORIZONTAL
         }
+        // Both controls are pinned rather than left to the host theme. Cancel is the only one on
+        // screen when the error is not recoverable, and a merchant theme that renders it into its
+        // own background leaves the user force-quitting the app to get out.
         val retry = Button(this@GlomoPayCheckoutActivity).apply {
             text = getString(R.string.glomopay_retry)
+            backgroundTintList = ColorStateList.valueOf(chromeColors.action)
+            setTextColor(chromeColors.onAction)
             setOnClickListener { retryAction() }
         }
         val cancel = Button(this@GlomoPayCheckoutActivity).apply {
             text = getString(R.string.glomopay_cancel)
+            backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+            setTextColor(chromeColors.actionText)
             setOnClickListener { cancelAction() }
         }
         actions.addView(retry)
@@ -788,6 +878,20 @@ public class GlomoPayCheckoutActivity : Activity() {
         addView(message)
         addView(actions)
     }
+
+    /** Extracted so [rebuildErrorPanels] can make the same panel rather than a near-copy. */
+    private fun createFlowErrorPanel(
+        flow: android.webkit.WebView,
+        loading: TextView,
+    ): View = createErrorPanel(
+        retryAction = {
+            flowErrorPanel?.visibility = View.GONE
+            loading.visibility = View.VISIBLE
+            flow.reload()
+        },
+        cancelAction = ::handleFlowBack,
+        messageResource = R.string.glomopay_connection_message,
+    )
 
     private fun retryMainCheckout() {
         connectionFailureVisible = false
@@ -833,7 +937,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
         hideFlow()
         val overlay = FrameLayout(this).apply {
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(chromeColors.surface)
             elevation = dp(8).toFloat()
         }
         val layout = LinearLayout(this).apply {
@@ -841,15 +945,22 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
         val toolbar = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(chromeColors.surface)
         }
         val back = ImageButton(this).apply {
             setImageResource(R.drawable.glomopay_ic_chevron_back)
             contentDescription = getString(R.string.glomopay_back)
             setBackgroundColor(Color.TRANSPARENT)
+            // The vector carries its own near-black fill, which is a light-scheme value baked
+            // into a resource. Tinted here rather than duplicated under a `-night` qualifier:
+            // a qualifier keys off the device, and this is the one control that can least
+            // afford to follow something the merchant did not ask for.
+            imageTintList = ColorStateList.valueOf(chromeColors.icon)
             setPadding(dp(12), dp(12), dp(12), dp(12))
             setOnClickListener { handleFlowBack() }
         }
+        flowToolbar = toolbar
+        flowBackButton = back
         toolbar.addView(back, LinearLayout.LayoutParams(dp(48), dp(48)))
         layout.addView(toolbar, LinearLayout.LayoutParams(-1, dp(48)))
 
@@ -868,12 +979,12 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
         content.addView(carouselContainer, LinearLayout.LayoutParams(-1, 0, 0f))
         content.addView(paymentContainer, LinearLayout.LayoutParams(-1, 0, 100f))
-        val flow = CheckoutWebViewFactory.create(this)
+        val flow = CheckoutWebViewFactory.create(this, chromeColors.surface)
         val flowLoading = TextView(this).apply {
             text = getString(R.string.glomopay_opening_secure_page)
             textSize = 15f
-            setTextColor(Color.DKGRAY)
-            setBackgroundColor(Color.WHITE)
+            setTextColor(chromeColors.textSecondary)
+            setBackgroundColor(chromeColors.surface)
             gravity = Gravity.CENTER
         }
         flowWebView = flow
@@ -959,11 +1070,8 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
         paymentContainer.addView(flow, FrameLayout.LayoutParams(-1, -1))
         paymentContainer.addView(flowLoading, FrameLayout.LayoutParams(-1, -1))
-        flowErrorPanel = createErrorPanel(
-            retryAction = { flowErrorPanel?.visibility = View.GONE; flowLoading.visibility = View.VISIBLE; flow.reload() },
-            cancelAction = ::handleFlowBack,
-            messageResource = R.string.glomopay_connection_message,
-        ).also { paymentContainer.addView(it, FrameLayout.LayoutParams(-1, -1)) }
+        flowErrorPanel = createFlowErrorPanel(flow, flowLoading)
+            .also { paymentContainer.addView(it, FrameLayout.LayoutParams(-1, -1)) }
         layout.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         overlay.addView(layout, FrameLayout.LayoutParams(-1, -1))
         flowOverlay = overlay
@@ -1000,6 +1108,8 @@ public class GlomoPayCheckoutActivity : Activity() {
         flowOverlay = null
         flowWebView = null
         flowLoadingLabel = null
+        flowToolbar = null
+        flowBackButton = null
         flowErrorPanel = null
         flowCarouselContainer = null
         flowPaymentContainer = null
