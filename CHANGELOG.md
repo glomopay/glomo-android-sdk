@@ -21,13 +21,16 @@ public API changes require a new major release.
   flight survives the change. A host night-mode change reaches an open checkout on its own while
   the scheme is `AUTO`.
 - `GlomoColorScheme` enum.
+- `GlomoPayCheckoutActivity.EXTRA_HOST_THEME_IS_LIGHT`, alongside the existing `EXTRA_*` constants.
+  `createIntent` sets it for you, resolved against the launching context's theme - that is how `AUTO`
+  reads your app's appearance rather than the SDK Activity's own. You only need the constant if you
+  build the launch Intent by hand; leave it off and `AUTO` falls through to the device configuration.
 
 ### Changed
 
 - Android WebView algorithmic darkening is now explicitly off on every page the SDK renders,
   including bank and 3DS pages. Previously the platform could invert a page that handles its own
   colours. Nothing to configure.
-- Improved SDK diagnostics around checkout appearance.
 
 ### Binary compatibility
 
