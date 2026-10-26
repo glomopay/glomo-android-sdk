@@ -172,8 +172,16 @@ specific source that can answer:
 Step 2 is what makes a light-only app on a dark device get a light checkout. It
 is needed because `MODE_NIGHT_FOLLOW_SYSTEM` is the *default* return of step 1,
 so an app that has never called `setDefaultNightMode` is indistinguishable there
-from one that asked to follow the system. A `DayNight` theme still tracks the
-device, because `isLightTheme` resolves per configuration.
+from one that asked to follow the system.
+
+Step 2 is read **once, when you launch the checkout**, against the context you
+launch it with. A `DayNight` theme therefore gets the right answer at launch, but
+a device light/dark toggle *while the checkout is open* is not followed: step 2
+has already answered, so the new device configuration never reaches step 3. If
+you need an open checkout to move, drive it yourself with
+`setAppColorScheme(LIGHT)` or `setAppColorScheme(DARK)` from your own
+configuration callback. Hosts that set a night mode through
+`AppCompatDelegate` are unaffected, because step 1 is re-read on every change.
 
 If your theme defines no `isLightTheme` - unusual, but possible with a custom
 theme that does not inherit from a platform or Material parent - the SDK falls
