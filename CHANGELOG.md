@@ -30,7 +30,9 @@ public API changes require a new major release.
 
 - Android WebView algorithmic darkening is now explicitly off on every page the SDK renders,
   including bank and 3DS pages. Previously the platform could invert a page that handles its own
-  colours. Nothing to configure.
+  colours. Nothing to configure. On an Android 13+ device whose system WebView is too old to
+  support the setting, the SDK leaves darkening to the WebView rather than failing to open
+  checkout.
 - Each `startCheckout` call now passes a `journeyId` to checkout, and the SDK's analytics events carry it, so one checkout can be followed end to end.
 
 ### Binary compatibility

@@ -46,11 +46,20 @@ internal object CheckoutWebViewFactory {
      * after the first would leave every targetSdk < 33 host darkened by a WebView modern enough to
      * support the replacement - which is most of them. `setForceDark` being deprecated is the
      * point: minSdk 24 means those hosts are in the field.
+     *
+     * The algorithmic-darkening guard and setter disagree, so the setter must be caught.
+     * `isFeatureSupported` is satisfied by the framework alone - true on every API 33+ device -
+     * but `setAlgorithmicDarkeningAllowed` routes only through the WebView provider and throws
+     * `UnsupportedOperationException` when that provider predates the feature. An API 33+ device
+     * on a stale WebView therefore passes the guard and crashes the setter. Skipping it leaves the
+     * page as the WebView would have rendered it; crashing here takes checkout down in `onCreate`
+     * and the customer cannot pay. `setForceDark` needs no such catch: its guard and its setter
+     * both answer to `isSupportedByFramework`, and it still runs for this WebView.
      */
     @Suppress("DEPRECATION")
     private fun disableAlgorithmicDarkening(webView: WebView) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
-            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, false)
+            runCatching { WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, false) }
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
             WebSettingsCompat.setForceDark(webView.settings, WebSettingsCompat.FORCE_DARK_OFF)
