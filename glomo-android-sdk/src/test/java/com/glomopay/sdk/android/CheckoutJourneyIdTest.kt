@@ -28,7 +28,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [32])
+@Config(sdk = [34])
 class CheckoutJourneyIdTest {
     private val host = Robolectric.buildActivity(Activity::class.java).setup().get()
     private val config = GlomoPayConfig(
