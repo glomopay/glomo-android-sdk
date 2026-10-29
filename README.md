@@ -5,7 +5,7 @@ flows into Android applications.
 
 ## Current Status
 
-Version `2.0.0` is prepared for release and available for local integration testing.
+Version `2.1.0` is prepared for release and available for local integration testing.
 Maven Central publication is planned; until then, use the local module or the
 published artifact when it becomes available.
 
@@ -31,7 +31,7 @@ current implementation detail. See [CONTRIBUTING.md](CONTRIBUTING.md).
 | Kotlin | 2.0.21 or compatible |
 | Java/JVM target | 17 |
 | Kotlin/Java package | `com.glomopay.sdk.android` |
-| Planned Maven coordinates | `com.glomopay:glomo-android-sdk:2.0.0` |
+| Planned Maven coordinates | `com.glomopay:glomo-android-sdk:2.1.0` |
 
 **Why minSdk 24.** The deciding factor is TLS, not market share. Devices below
 Android 7.1.1 carry a stale CA trust store and can fail handshakes against modern
@@ -68,7 +68,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.glomopay:glomo-android-sdk:2.0.0")
+    implementation("com.glomopay:glomo-android-sdk:2.1.0")
 }
 ```
 
@@ -188,6 +188,16 @@ theme that does not inherit from a platform or Material parent - the SDK falls
 through to the device. What `AUTO` derives from is a per-platform decision and
 differs across the Glomo SDKs; only `LIGHT` and `DARK` mean the same thing
 everywhere.
+
+**If you build the launch Intent by hand.** `GlomoPaySdk.startCheckout` and
+`GlomoPayCheckoutActivity.createIntent` resolve step 2 for you, against the
+context you pass them, and put the answer on the Intent as
+`GlomoPayCheckoutActivity.EXTRA_HOST_THEME_IS_LIGHT`. If you construct the Intent
+yourself instead of using either, set that extra from your own theme - otherwise
+step 2 is skipped and `AUTO` falls through to the device, which is precisely the
+case a light-only app on a dark phone gets wrong. Leave it off rather than
+guessing when your theme cannot answer: absent means "did not say", which the SDK
+treats differently from `false`.
 
 **Changing it mid-checkout is supported**, through the handle:
 
