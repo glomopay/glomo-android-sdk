@@ -136,6 +136,13 @@ public class GlomoPayCheckoutActivity : Activity() {
     private var flowErrorPanel: View? = null
     private var backCallback: android.window.OnBackInvokedCallback? = null
 
+    /**
+     * Whether this checkout has already reported a WebView that refuses algorithmic darkening.
+     * The refusal belongs to the installed WebView, not to any one WebView instance, so the three
+     * created here would otherwise report the same fact three times.
+     */
+    private var darkeningUnsupportedReported = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         captureStore = CaptureStore.open(java.io.File(cacheDir, CaptureStore.DIRECTORY))
@@ -210,10 +217,25 @@ public class GlomoPayCheckoutActivity : Activity() {
         loadCheckout()
     }
 
+    /**
+     * Sentry only, and once per checkout. Mixpanel carries no device-capability events, and the
+     * volume here would say how many WebViews a checkout builds rather than how many devices are
+     * affected.
+     */
+    private fun reportDarkeningUnsupported(webViewType: String, error: UnsupportedOperationException) {
+        if (darkeningUnsupportedReported) return
+        darkeningUnsupportedReported = true
+        errorReporter.capture(
+            operation = "webview_algorithmic_darkening_unsupported",
+            error = error,
+            context = mapOf("webview_type" to webViewType),
+        )
+    }
+
     private fun buildContentView() {
         supportsDocumentStartInjection =
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
-        webView = CheckoutWebViewFactory.create(this).apply {
+        webView = CheckoutWebViewFactory.create(this) { reportDarkeningUnsupported("main", it) }.apply {
             webViewClient = CheckoutWebViewClient(
                 onPageStartedCallback = { url ->
                     currentUrl = url
@@ -599,7 +621,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         currentOrderType = orderType.lowercase()
         if (currentOrderType != "lrs" || config.isSubscription) return
 
-        val carousel = CheckoutWebViewFactory.create(this)
+        val carousel = CheckoutWebViewFactory.create(this) { reportDarkeningUnsupported("carousel", it) }
         val carouselUrl = ConfigManager.getCarouselUrl(config, resolvedColorScheme)
         loadedCarouselUrl = carouselUrl
         currentCarouselUrl = null
@@ -811,7 +833,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
         content.addView(carouselContainer, LinearLayout.LayoutParams(-1, 0, 0f))
         content.addView(paymentContainer, LinearLayout.LayoutParams(-1, 0, 100f))
-        val flow = CheckoutWebViewFactory.create(this)
+        val flow = CheckoutWebViewFactory.create(this) { reportDarkeningUnsupported("flow", it) }
         val flowLoading = TextView(this).apply {
             text = getString(R.string.glomopay_opening_secure_page)
             textSize = 15f

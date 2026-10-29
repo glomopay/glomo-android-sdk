@@ -11,7 +11,10 @@ import androidx.webkit.WebViewFeature
 internal object CheckoutWebViewFactory {
     @SuppressLint("SetJavaScriptEnabled")
     @Suppress("DEPRECATION")
-    fun create(context: Context): WebView = WebView(context).apply {
+    fun create(
+        context: Context,
+        onDarkeningUnsupported: (UnsupportedOperationException) -> Unit = {},
+    ): WebView = WebView(context).apply {
         setBackgroundColor(android.graphics.Color.WHITE)
         settings.apply {
             javaScriptEnabled = true
@@ -27,7 +30,7 @@ internal object CheckoutWebViewFactory {
             mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
         }
-        disableAlgorithmicDarkening(this)
+        disableAlgorithmicDarkening(this, onDarkeningUnsupported)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
         // A fresh WebView starts with empty navigation/form state. Shared cookies,
         // WebStorage and the process-wide disk cache belong to the embedding app.
@@ -55,11 +58,24 @@ internal object CheckoutWebViewFactory {
      * page as the WebView would have rendered it; crashing here takes checkout down in `onCreate`
      * and the customer cannot pay. `setForceDark` needs no such catch: its guard and its setter
      * both answer to `isSupportedByFramework`, and it still runs for this WebView.
+     *
+     * Only `UnsupportedOperationException` is caught, and only around the one call that documents
+     * it. A wider net here would swallow an androidx regression rather than surface it.
+     * [onDarkeningUnsupported] exists so the caller can report the rejection; the condition is a
+     * property of the installed WebView, so every WebView in a checkout hits it or none does, and
+     * the caller is responsible for reporting it once rather than per WebView.
      */
     @Suppress("DEPRECATION")
-    private fun disableAlgorithmicDarkening(webView: WebView) {
+    private fun disableAlgorithmicDarkening(
+        webView: WebView,
+        onDarkeningUnsupported: (UnsupportedOperationException) -> Unit,
+    ) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
-            runCatching { WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, false) }
+            try {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, false)
+            } catch (error: UnsupportedOperationException) {
+                onDarkeningUnsupported(error)
+            }
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
             WebSettingsCompat.setForceDark(webView.settings, WebSettingsCompat.FORCE_DARK_OFF)

@@ -12,7 +12,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [32])
+@Config(sdk = [34])
 class CheckoutLifecycleAnalyticsTest {
     private val host = Robolectric.buildActivity(Activity::class.java).setup().get()
     private val config = GlomoPayConfig(publicKey = "test_public_key", orderId = "order_123")
