@@ -5,9 +5,9 @@ flows into Android applications.
 
 ## Current Status
 
-Version `2.1.0` is prepared for release and available for local integration testing.
-Maven Central publication is planned; until then, use the local module or the
-published artifact when it becomes available.
+Version `2.1.0` is prepared for release. The SDK is published to Maven Central -
+`1.0.0` and `2.0.0` are live - and `2.1.0` resolves once this release is tagged.
+Until then, use the local module or the latest published version.
 
 The SDK hosts GlomoPay checkout in a native Android WebView and exposes payment
 results and lifecycle events through a Kotlin callback contract. Card details,
@@ -31,7 +31,7 @@ current implementation detail. See [CONTRIBUTING.md](CONTRIBUTING.md).
 | Kotlin | 2.0.21 or compatible |
 | Java/JVM target | 17 |
 | Kotlin/Java package | `com.glomopay.sdk.android` |
-| Planned Maven coordinates | `com.glomopay:glomo-android-sdk:2.1.0` |
+| Maven coordinates | `com.glomopay:glomo-android-sdk:2.1.0` |
 
 **Why minSdk 24.** The deciding factor is TLS, not market share. Devices below
 Android 7.1.1 carry a stale CA trust store and can fail handshakes against modern
