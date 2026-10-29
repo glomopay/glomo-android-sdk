@@ -1,5 +1,6 @@
 package com.glomopay.sdk.android
 
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -14,7 +15,14 @@ import java.net.URL
 public class GlomoPayApiClient public constructor(
     private val publicKey: String,
 ) {
-    public suspend fun fetchOrder(orderId: String): Map<String, Any?> = withContext(Dispatchers.IO) {
+    public suspend fun fetchOrder(orderId: String): Map<String, Any?> = fetchOrderWithStatus(orderId).second
+
+    internal suspend fun fetchOrderWithStatus(orderId: String): Pair<Int, Map<String, Any?>> {
+        fetchOverride?.let { return it(orderId) }
+        return fetchOrderFromApi(orderId)
+    }
+
+    private suspend fun fetchOrderFromApi(orderId: String): Pair<Int, Map<String, Any?>> = withContext(Dispatchers.IO) {
         val url = URL("https://api.glomopay.com/api/public/v1/order/$orderId")
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
@@ -31,7 +39,7 @@ public class GlomoPayApiClient public constructor(
             } else {
                 ""
             }
-            mapOrderFetchResponse(status, body)
+            status to mapOrderFetchResponse(status, body)
         } catch (error: GlomoPayOrderFetchException) {
             throw error
         } catch (error: SocketTimeoutException) {
@@ -76,6 +84,9 @@ public class GlomoPayApiClient public constructor(
     }
 
     internal companion object {
+        @VisibleForTesting
+        internal var fetchOverride: (suspend (orderId: String) -> Pair<Int, Map<String, Any?>>)? = null
+
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 15_000
         internal val totalRequestTimeoutMs: Long
