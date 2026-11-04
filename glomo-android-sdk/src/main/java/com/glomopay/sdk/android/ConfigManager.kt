@@ -153,6 +153,20 @@ public object ConfigManager {
         publicKey.startsWith("test_") || publicKey.startsWith("mock_")
 
     /** Detects checkout type using the same order response heuristic as Flutter. */
+    /**
+     * Whether the merchant has dark mode switched on, from the order response.
+     *
+     * The key is snake_case and has no camelCase alias, unlike `order_type`/`orderType` on the
+     * same payload - a reader guessing one finds nothing and silently stays light.
+     *
+     * An identity check against `true` rather than a truthiness one: the map value arrives as
+     * `Any?`, so a missing key, a null, the string "true" and a number are all possible and all
+     * mean light. Light is the safe answer, because the page renders light whenever the flag is
+     * off - dark is the only value that can be visibly wrong.
+     */
+    internal fun darkModeEnabled(orderData: Map<String, Any?>): Boolean =
+        orderData["dark_mode_enabled"] as? Boolean == true
+
     public fun detectOrderType(orderData: Map<String, Any?>): String {
         val explicit = orderData["orderType"]?.toString()?.takeIf { it.isNotBlank() }
         if (explicit != null) return explicit

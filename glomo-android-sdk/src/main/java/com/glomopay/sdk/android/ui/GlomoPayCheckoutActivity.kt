@@ -19,6 +19,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.glomopay.sdk.android.CheckoutSurfaceColors
 import com.glomopay.sdk.android.ConfigManager
 import com.glomopay.sdk.android.ConnectionError
 import com.glomopay.sdk.android.ConnectionErrorType
@@ -139,7 +140,21 @@ public class GlomoPayCheckoutActivity : Activity() {
      * What `config.appColorScheme` currently resolves to. Held so a host night-mode change can be
      * told from a configuration change that moved something else - locale, font scale, a rotation.
      */
+    /**
+     * The scheme the host asked for. This is the *request*: it is what the page is told, over the
+     * URL parameter and the injected setter, and the page decides against the merchant's own
+     * settings. What this Activity paints is [presentedColorScheme], which is not the same thing.
+     */
     private var resolvedColorScheme: ResolvedColorScheme = ResolvedColorScheme.LIGHT
+
+    /**
+     * The merchant's `dark_mode_enabled` flag, from the order response.
+     *
+     * False until the fetch answers, and on every path that never fetches. False-by-default is
+     * load-bearing: it is what keeps every surface light until the flag says otherwise, which is
+     * what they already were.
+     */
+    private var darkModeEnabled = false
     private var supportsDocumentStartInjection = false
     private var mainDocumentStartInjectionInstalled = false
     private var flowErrorPanel: View? = null
@@ -275,8 +290,10 @@ public class GlomoPayCheckoutActivity : Activity() {
 
         loadingLabel = TextView(this).apply {
             text = getString(R.string.glomopay_loading_checkout)
-            setTextColor(Color.DKGRAY)
-            setBackgroundColor(Color.WHITE)
+            // Light until the merchant flag says otherwise; `applyPresentedColorScheme` re-paints
+            // it once the order response answers.
+            setTextColor(CheckoutSurfaceColors.label(presentedColorScheme))
+            setBackgroundColor(CheckoutSurfaceColors.background(presentedColorScheme))
             gravity = Gravity.CENTER
             visibility = View.VISIBLE
         }
@@ -336,6 +353,8 @@ public class GlomoPayCheckoutActivity : Activity() {
                     GlomoPayApiClient(config.publicKey).fetchOrderWithStatus(orderId)
                 }
                 val detectedType = ConfigManager.detectOrderType(order)
+                darkModeEnabled = ConfigManager.darkModeEnabled(order)
+                applyPresentedColorScheme()
                 analytics.updateFlowType(detectedType)
                 errorReporter.updateFlowType(detectedType)
                 analytics.orderFetchSucceeded(httpStatus)
@@ -613,10 +632,43 @@ public class GlomoPayCheckoutActivity : Activity() {
      * a WebView that has navigated off our origin is not ours to restyle. The flow WebView is
      * excluded entirely: it holds the bank's page on the bank's origin.
      */
+    /**
+     * The scheme the SDK may actually paint, as opposed to the one it asks the page for.
+     *
+     * The page only goes dark for a merchant whose `dark_mode_enabled` flag is on; with it off it
+     * renders light whatever the URL said. Painting from the request alone therefore flashes dark
+     * in front of a page that renders light, for every merchant who has not switched dark mode on
+     * - trading one flash for a worse one, on more merchants.
+     */
+    private val presentedColorScheme: ResolvedColorScheme
+        get() = if (darkModeEnabled) resolvedColorScheme else ResolvedColorScheme.LIGHT
+
+    /**
+     * Re-paints the surfaces the SDK draws before the page does.
+     *
+     * The loading label is here and not only the WebView because it sits *over* the WebView in
+     * [rootView] until [CheckoutUiState.Content], so recolouring the WebView alone would change
+     * nothing a customer sees.
+     *
+     * The flow WebView and the error panels are deliberately absent: the bank's page is not ours
+     * to theme, and the panels are not a pre-paint surface.
+     */
+    private fun applyPresentedColorScheme() {
+        val scheme = presentedColorScheme
+        val background = CheckoutSurfaceColors.background(scheme)
+        webView.setBackgroundColor(background)
+        carouselWebView?.setBackgroundColor(background)
+        if (::loadingLabel.isInitialized) {
+            loadingLabel.setBackgroundColor(background)
+            loadingLabel.setTextColor(CheckoutSurfaceColors.label(scheme))
+        }
+    }
+
     private fun applyColorScheme(resolved: ResolvedColorScheme) {
         if (finished || resolved == resolvedColorScheme) return
         val previous = resolvedColorScheme
         resolvedColorScheme = resolved
+        applyPresentedColorScheme()
 
         currentUrl?.let { pushColorScheme(webView, it, loadedCheckoutUrl) }
         carouselWebView?.let { carousel ->
@@ -632,6 +684,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         if (currentOrderType != "lrs" || config.isSubscription) return
 
         val carousel = CheckoutWebViewFactory.create(this) { reportDarkeningUnsupported("carousel", it) }
+        // Built after the order response has answered, so it takes the flag-gated colour directly
+        // rather than waiting for the next re-paint.
+        carousel.setBackgroundColor(CheckoutSurfaceColors.background(presentedColorScheme))
         val carouselUrl = ConfigManager.getCarouselUrl(config, resolvedColorScheme)
         loadedCarouselUrl = carouselUrl
         currentCarouselUrl = null

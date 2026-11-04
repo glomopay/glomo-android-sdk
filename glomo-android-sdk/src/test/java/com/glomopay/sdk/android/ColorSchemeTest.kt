@@ -368,3 +368,60 @@ class RetryCheckoutUrlTest {
         assertEquals(rebuilt, retryCheckoutUrl(loaded, null, ResolvedColorScheme.DARK) { rebuilt })
     }
 }
+
+/**
+ * The merchant's `dark_mode_enabled` flag, as read off the order response.
+ *
+ * Plain map in, Boolean out, so the rule is covered here rather than only through the Activity.
+ */
+class DarkModeFlagTest {
+    @Test
+    fun it_is_on_only_for_a_literal_true() {
+        assertTrue(ConfigManager.darkModeEnabled(mapOf("dark_mode_enabled" to true)))
+    }
+
+    @Test
+    fun it_is_off_for_false() {
+        assertFalse(ConfigManager.darkModeEnabled(mapOf("dark_mode_enabled" to false)))
+    }
+
+    @Test
+    fun it_is_off_when_the_key_is_absent() {
+        // What every response looked like before the field shipped, and what a cached or proxied
+        // older response still looks like.
+        assertFalse(ConfigManager.darkModeEnabled(mapOf("orderType" to "lrs")))
+        assertFalse(ConfigManager.darkModeEnabled(emptyMap()))
+    }
+
+    @Test
+    fun it_is_off_for_anything_that_is_not_a_boolean() {
+        // The map value is `Any?`, so each of these can actually arrive. Dark is the only answer
+        // that can be visibly wrong, so only a real Boolean true earns it.
+        assertFalse(ConfigManager.darkModeEnabled(mapOf("dark_mode_enabled" to "true")))
+        assertFalse(ConfigManager.darkModeEnabled(mapOf("dark_mode_enabled" to 1)))
+        assertFalse(ConfigManager.darkModeEnabled(mapOf("dark_mode_enabled" to null)))
+    }
+
+    @Test
+    fun it_reads_the_snake_case_key_only() {
+        // The payload carries both `order_type` and `orderType`; this field has no camelCase
+        // alias, so a reader guessing one finds nothing and silently stays light.
+        assertFalse(ConfigManager.darkModeEnabled(mapOf("darkModeEnabled" to true)))
+    }
+}
+
+class CheckoutSurfaceColorsTest {
+    @Test
+    fun dark_surfaces_match_the_checkout_pages_own_background() {
+        // Not black: a black frame around the page's #0F172A is a visible seam at the edges.
+        assertEquals(0xFF0F172A.toInt(), CheckoutSurfaceColors.background(ResolvedColorScheme.DARK))
+        assertEquals(android.graphics.Color.WHITE, CheckoutSurfaceColors.background(ResolvedColorScheme.LIGHT))
+    }
+
+    @Test
+    fun the_label_moves_with_the_background() {
+        // Or the loading text is dark grey on near-black.
+        assertEquals(CheckoutSurfaceColors.DARK_LABEL, CheckoutSurfaceColors.label(ResolvedColorScheme.DARK))
+        assertEquals(CheckoutSurfaceColors.LIGHT_LABEL, CheckoutSurfaceColors.label(ResolvedColorScheme.LIGHT))
+    }
+}

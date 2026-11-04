@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.Button
+import android.widget.TextView
 import com.glomopay.sdk.android.analytics.AnalyticsEvent
 import com.glomopay.sdk.android.analytics.AnalyticsFactory
 import com.glomopay.sdk.android.analytics.AnalyticsTransport
@@ -30,6 +31,15 @@ internal class RecordedCheckout private constructor(
 
     val webView: WebView
         get() = root.allViews().filterIsInstance<WebView>().first()
+
+    /**
+     * The loading label the checkout shows until the page paints.
+     *
+     * The first `TextView` in traversal order: the root holds the WebView, which contains none,
+     * then this, then the error panel, which is built later and starts hidden.
+     */
+    val loadingLabel: TextView
+        get() = root.allViews().filterIsInstance<TextView>().first()
 
     fun named(name: String): List<AnalyticsEvent> = events.filter { it.name == name }
 
