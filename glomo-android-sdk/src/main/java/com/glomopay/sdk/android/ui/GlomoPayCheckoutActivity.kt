@@ -139,11 +139,10 @@ public class GlomoPayCheckoutActivity : Activity() {
     /**
      * What `config.appColorScheme` currently resolves to. Held so a host night-mode change can be
      * told from a configuration change that moved something else - locale, font scale, a rotation.
-     */
-    /**
-     * The scheme the host asked for. This is the *request*: it is what the page is told, over the
-     * URL parameter and the injected setter, and the page decides against the merchant's own
-     * settings. What this Activity paints is [presentedColorScheme], which is not the same thing.
+     *
+     * This is the *request*: it is what the page is told, over the URL parameter and the injected
+     * setter, and the page decides against the merchant's own settings. What this Activity paints
+     * is [presentedColorScheme], which is not the same thing.
      */
     private var resolvedColorScheme: ResolvedColorScheme = ResolvedColorScheme.LIGHT
 
@@ -289,6 +288,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         rootView.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
         loadingLabel = TextView(this).apply {
+            // Tagged so a test can find it without depending on where it sits among the root's
+            // children - the error panel below is a TextView container too.
+            tag = LOADING_LABEL_TAG
             text = getString(R.string.glomopay_loading_checkout)
             // Light until the merchant flag says otherwise; `applyPresentedColorScheme` re-paints
             // it once the order response answers.
@@ -353,12 +355,14 @@ public class GlomoPayCheckoutActivity : Activity() {
                     GlomoPayApiClient(config.publicKey).fetchOrderWithStatus(orderId)
                 }
                 val detectedType = ConfigManager.detectOrderType(order)
-                darkModeEnabled = ConfigManager.darkModeEnabled(order)
-                applyPresentedColorScheme()
                 analytics.updateFlowType(detectedType)
                 errorReporter.updateFlowType(detectedType)
                 analytics.orderFetchSucceeded(httpStatus)
                 if (isFinishing || isDestroyed) return@launch
+                // After the guard: the flag only matters to a checkout that is about to open,
+                // and repainting one that is going away reads as deliberate when it is not.
+                darkModeEnabled = ConfigManager.darkModeEnabled(order)
+                applyPresentedColorScheme()
                 openCheckout(detectedType)
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
@@ -620,19 +624,6 @@ public class GlomoPayCheckoutActivity : Activity() {
     }
 
     /**
-     * Hands [resolved] to the live pages, if it actually moved.
-     *
-     * Never reloads to apply a scheme: `loadUrl` mid-payment destroys the document and the
-     * payment with it. The injected setter is the whole of the live path. Any *later* load
-     * carries the new scheme because each one stamps it on the URL - see [retryCheckout] and
-     * [openCheckout]. It deliberately does **not** ride [mainInjectionScript]: that string is
-     * captured once by `addDocumentStartJavaScript`, so it would pin the opening scheme.
-     *
-     * Gated per surface on the page actually being ours, exactly as the page-finished push is -
-     * a WebView that has navigated off our origin is not ours to restyle. The flow WebView is
-     * excluded entirely: it holds the bank's page on the bank's origin.
-     */
-    /**
      * The scheme the SDK may actually paint, as opposed to the one it asks the page for.
      *
      * The page only goes dark for a merchant whose `dark_mode_enabled` flag is on; with it off it
@@ -664,6 +655,19 @@ public class GlomoPayCheckoutActivity : Activity() {
         }
     }
 
+    /**
+     * Hands [resolved] to the live pages, if it actually moved.
+     *
+     * Never reloads to apply a scheme: `loadUrl` mid-payment destroys the document and the
+     * payment with it. The injected setter is the whole of the live path. Any *later* load
+     * carries the new scheme because each one stamps it on the URL - see [retryCheckout] and
+     * [openCheckout]. It deliberately does **not** ride [mainInjectionScript]: that string is
+     * captured once by `addDocumentStartJavaScript`, so it would pin the opening scheme.
+     *
+     * Gated per surface on the page actually being ours, exactly as the page-finished push is -
+     * a WebView that has navigated off our origin is not ours to restyle. The flow WebView is
+     * excluded entirely: it holds the bank's page on the bank's origin.
+     */
     private fun applyColorScheme(resolved: ResolvedColorScheme) {
         if (finished || resolved == resolvedColorScheme) return
         val previous = resolvedColorScheme
@@ -1174,6 +1178,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         public const val EXTRA_ORDER_TYPE: String = "com.glomopay.sdk.android.ORDER_TYPE"
         public const val EXTRA_SESSION_ID: String = "com.glomopay.sdk.android.SESSION_ID"
         private val SUPPORTED_ORDER_TYPES = setOf("auto", "standard", "lrs")
+
+        /** Internal: how the test harness finds the loading label. Not a contract. */
+        internal const val LOADING_LABEL_TAG: String = "glomo_loading_label"
         private const val RENDER_TIMEOUT_MS = 15_000L
         private val OPEN_TIMEOUT_MS =
             GlomoPayApiClient.totalRequestTimeoutMs + RENDER_TIMEOUT_MS + 5_000L

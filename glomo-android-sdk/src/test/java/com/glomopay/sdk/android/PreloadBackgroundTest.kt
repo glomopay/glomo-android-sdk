@@ -3,6 +3,7 @@ package com.glomopay.sdk.android
 import android.app.Activity
 import android.graphics.drawable.ColorDrawable
 import android.view.View
+import kotlinx.coroutines.CompletableDeferred
 import com.glomopay.sdk.android.analytics.AnalyticsEvents
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -104,5 +105,78 @@ class PreloadBackgroundTest {
 
         assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, webViewColor(checkout))
         assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, colorOf(checkout.loadingLabel))
+    }
+
+    @Test
+    fun a_failed_order_fetch_stays_light() {
+        // The flag is unknown when the fetch does not answer, and unknown means light. A fetch
+        // that fails must not be able to leave a dark surface behind either.
+        GlomoPayApiClient.fetchOverride = { throw GlomoPayTransportError(java.io.IOException("offline")) }
+        val checkout = RecordedCheckout.open(host, config(GlomoColorScheme.DARK), orderType = "auto")
+        checkout.idleUntil { checkout.named(AnalyticsEvents.SDK_API_BACKEND).isNotEmpty() }
+
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, webViewColor(checkout))
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, colorOf(checkout.loadingLabel))
+        assertEquals(CheckoutSurfaceColors.LIGHT_LABEL, checkout.loadingLabel.currentTextColor)
+    }
+
+    @Test
+    fun a_timed_out_order_fetch_stays_light() {
+        GlomoPayApiClient.fetchOverride = { throw GlomoPayRequestTimeout(java.net.SocketTimeoutException()) }
+        val checkout = RecordedCheckout.open(host, config(GlomoColorScheme.DARK), orderType = "auto")
+        checkout.idleUntil { checkout.named(AnalyticsEvents.SDK_API_BACKEND).isNotEmpty() }
+
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, webViewColor(checkout))
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, colorOf(checkout.loadingLabel))
+    }
+
+    @Test
+    fun the_surface_is_light_until_the_flag_arrives() {
+        // The in-flight state, and the reason the CHANGELOG promises a brief light loading screen
+        // rather than none: the flag cannot be known before the response is.
+        val response = CompletableDeferred<Pair<Int, Map<String, Any?>>>()
+        GlomoPayApiClient.fetchOverride = { response.await() }
+        val checkout = RecordedCheckout.open(host, config(GlomoColorScheme.DARK), orderType = "auto")
+
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, webViewColor(checkout))
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, colorOf(checkout.loadingLabel))
+
+        response.complete(200 to mapOf("orderType" to "standard", "dark_mode_enabled" to true))
+        checkout.idleUntil { webViewColor(checkout) == CheckoutSurfaceColors.DARK_BACKGROUND }
+
+        assertEquals(CheckoutSurfaceColors.DARK_BACKGROUND, webViewColor(checkout))
+        assertEquals(CheckoutSurfaceColors.DARK_BACKGROUND, colorOf(checkout.loadingLabel))
+    }
+
+    @Test
+    fun a_live_scheme_change_repaints_a_flag_on_checkout() {
+        // The host changing its theme mid-checkout. `applyColorScheme` is the only path that runs
+        // then, so if it does not re-paint, every surface keeps the scheme the checkout opened on.
+        val checkout = openWithFlag(
+            mapOf("orderType" to "standard", "dark_mode_enabled" to true),
+            GlomoColorScheme.LIGHT,
+        )
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, webViewColor(checkout))
+
+        checkout.activity.setAppColorScheme(GlomoColorScheme.DARK)
+
+        assertEquals(CheckoutSurfaceColors.DARK_BACKGROUND, webViewColor(checkout))
+        assertEquals(CheckoutSurfaceColors.DARK_BACKGROUND, colorOf(checkout.loadingLabel))
+        assertEquals(CheckoutSurfaceColors.DARK_LABEL, checkout.loadingLabel.currentTextColor)
+    }
+
+    @Test
+    fun a_live_scheme_change_leaves_a_flag_off_checkout_light() {
+        // The request still reaches the page - what the SDK paints is the separate decision.
+        val checkout = openWithFlag(
+            mapOf("orderType" to "standard", "dark_mode_enabled" to false),
+            GlomoColorScheme.LIGHT,
+        )
+
+        checkout.activity.setAppColorScheme(GlomoColorScheme.DARK)
+
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, webViewColor(checkout))
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, colorOf(checkout.loadingLabel))
+        assertEquals(CheckoutSurfaceColors.LIGHT_LABEL, checkout.loadingLabel.currentTextColor)
     }
 }

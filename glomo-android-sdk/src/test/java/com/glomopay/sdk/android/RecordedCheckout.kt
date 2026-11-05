@@ -35,11 +35,13 @@ internal class RecordedCheckout private constructor(
     /**
      * The loading label the checkout shows until the page paints.
      *
-     * The first `TextView` in traversal order: the root holds the WebView, which contains none,
-     * then this, then the error panel, which is built later and starts hidden.
+     * By tag, not by position: the error panel is built in the same pass and holds TextViews of
+     * its own, so "the first one" is only correct for as long as nobody reorders the root.
      */
     val loadingLabel: TextView
-        get() = root.allViews().filterIsInstance<TextView>().first()
+        get() = root.allViews()
+            .filterIsInstance<TextView>()
+            .first { it.tag == GlomoPayCheckoutActivity.LOADING_LABEL_TAG }
 
     fun named(name: String): List<AnalyticsEvent> = events.filter { it.name == name }
 

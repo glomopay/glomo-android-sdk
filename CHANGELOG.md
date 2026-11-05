@@ -37,10 +37,10 @@ public API changes require a new major release.
 - `onSdkError` no longer carries the content of a bridge message the SDK could not parse. The
   underlying `JSONException` message quotes the whole unparsed input, which can include customer
   data, so the SDK now reports a fixed message instead. Error telemetry was already unaffected.
-- A checkout opened with `GlomoColorScheme.DARK` no longer shows a white screen before a dark page
-  renders. The SDK now learns from the order response whether dark mode is switched on for your
-  merchant account, and colours the checkout WebView and the loading screen to match before the
-  first load. With dark mode off for the account, everything stays light exactly as before.
+- With dark mode switched on for your merchant account and `GlomoColorScheme.DARK` (or `AUTO` on a
+  dark host), the checkout WebView and loading screen now turn dark as soon as the order loads,
+  instead of staying white until the page renders. A brief light loading screen may still show
+  while the order is being fetched. With dark mode off for the account, nothing changes.
 - Checkouts opened with an explicit `orderType`, and subscription checkouts, keep the previous
   light-only behaviour: those paths do not load the order, so the account setting is not available
   to them.
