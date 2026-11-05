@@ -38,6 +38,7 @@ secrets.properties
 signing.properties
 gradle.properties.local
 google-services.json
+internal/*
 
 # Scratch — do not commit temporary analysis or scratch files
 temp_*
