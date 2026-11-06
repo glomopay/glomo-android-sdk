@@ -60,15 +60,43 @@ public object ConfigManager {
     internal fun checkoutDocumentStartOriginRules(url: String): Set<String> =
         originOf(url)?.let { setOf(it) } ?: emptySet()
 
-    /** `scheme://host[:port]`, or null for anything that is not an http(s) URL. */
+    /**
+     * `scheme://host[:port]`, or null for anything that is not an http(s) URL.
+     *
+     * The scheme's default port is dropped, so the two spellings of one origin compare equal.
+     * This is compared against [android.webkit.WebView.url], which reports whatever the page
+     * actually navigated to - an explicit `:443` from a redirect must still match a base URL
+     * written without one.
+     */
     internal fun originOf(url: String): String? {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
         val scheme = uri.scheme?.lowercase()
         val host = uri.host?.lowercase() ?: return null
         if (scheme != "https" && scheme != "http") return null
-        val port = uri.port.takeIf { it >= 0 }?.let { ":$it" } ?: ""
+        val defaultPort = if (scheme == "https") 443 else 80
+        val port = uri.port.takeIf { it >= 0 && it != defaultPort }?.let { ":$it" } ?: ""
         return "$scheme://$host$port"
     }
+
+    /**
+     * Every origin this SDK serves a page from, for the config in hand.
+     *
+     * Derived from the same base URLs the SDK navigates to rather than written out, so a merchant
+     * on a custom [GlomoPayConfig.server] is covered without a second list that can drift from the
+     * first. All three are trusted for every WebView rather than one per journey: the set still
+     * excludes every bank, which is the boundary that matters, and a narrower list would start
+     * dropping our own pages the first time a journey moves to a sibling host.
+     */
+    internal fun trustedPageOrigins(config: GlomoPayConfig): Set<String> =
+        setOfNotNull(
+            originOf(getBaseUrl(config, "standard")),
+            originOf(getBaseUrl(config, "lrs")),
+            originOf(CAROUSEL_BASE_URL),
+        )
+
+    /** Whether [url] was served by one of [trusted]. Unparseable or non-http(s) is never trusted. */
+    internal fun isTrustedPageOrigin(url: String?, trusted: Set<String>): Boolean =
+        url != null && originOf(url) in trusted
 
     /** [colorScheme] carries the same resolved value on the same param name - the carousel is on
      * the same contract as the checkout pages. */

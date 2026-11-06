@@ -403,6 +403,115 @@ class GlomoPayEventRouterTest {
 
         assertTrue(analytics.events.isEmpty())
         assertEquals(1, listener.sdkErrors.size)
+        // AOSP's org.json builds a JSONException message as "<problem> at character N of <whole
+        // input>", so passing it on hands the host the payload that failed to parse. Asserted as
+        // an exact match, not an absence: this runs on the JVM against upstream org.json, whose
+        // message carries no input, so "does not contain the payload" would pass either way.
+        assertEquals("Unable to parse WebView event", listener.sdkErrors.single().single().message)
+    }
+
+    private val trusted = setOf("https://checkout.glomopay.com")
+
+    private fun paymentSuccess(): String =
+        """{"type":"message","data":{"type":"payment.success","payload":""" +
+            """{"orderId":"order_1","paymentId":"pay_1","signature":"sig_1"}}}"""
+
+    @Test
+    fun payment_event_from_a_bank_page_is_dropped() {
+        val listener = RecordingListener()
+        var result: GlomoPayResult? = null
+        val analytics = RecordingAnalytics()
+        val router = GlomoPayEventRouter(
+            listener,
+            devMode = false,
+            onComplete = { result = it },
+            analytics = CheckoutAnalytics(analytics),
+            trustedOrigins = trusted,
+        )
+
+        router.handle(paymentSuccess(), "flow", documentUrl = "https://netbanking.bank.example/3ds")
+
+        assertTrue(listener.success.isEmpty())
+        assertTrue(result == null)
+        assertTrue(analytics.events.any { it.name == AnalyticsEvents.SDK_ACTION_FAILED })
+    }
+
+    @Test
+    fun payment_event_from_a_glomopay_page_is_delivered() {
+        val listener = RecordingListener()
+        var result: GlomoPayResult? = null
+        val router = GlomoPayEventRouter(
+            listener,
+            devMode = false,
+            onComplete = { result = it },
+            trustedOrigins = trusted,
+        )
+
+        router.handle(
+            paymentSuccess(),
+            "main",
+            documentUrl = "https://checkout.glomopay.com/?orderId=order_1&publicKey=live_abc",
+        )
+
+        assertEquals("order_1", listener.success.single().orderId)
+        assertTrue(result is GlomoPayResult.Success)
+    }
+
+    @Test
+    fun payment_event_with_no_known_document_is_dropped() {
+        val listener = RecordingListener()
+        val router = GlomoPayEventRouter(
+            listener,
+            devMode = false,
+            onComplete = {},
+            trustedOrigins = trusted,
+        )
+
+        router.handle(paymentSuccess(), "main", documentUrl = null)
+
+        assertTrue(listener.success.isEmpty())
+    }
+
+    /**
+     * The flow injection replaces `window.close` on the bank's own document, so a bank calling it
+     * is how the overlay dismisses after a challenge. Gating it would strand the user.
+     */
+    @Test
+    fun bank_driven_navigation_still_works_from_a_bank_page() {
+        val listener = RecordingListener()
+        var closed = 0
+        var opened: String? = null
+        val router = GlomoPayEventRouter(
+            listener,
+            devMode = false,
+            onComplete = {},
+            onWindowOpen = { opened = it },
+            onWindowClose = { closed++ },
+            trustedOrigins = trusted,
+        )
+        val bank = "https://netbanking.bank.example/3ds"
+
+        router.handle("""{"type":"window.open","url":"https://bank.example/step2"}""", "flow", bank)
+        router.handle("""{"type":"window.close"}""", "flow", bank)
+
+        assertEquals("https://bank.example/step2", opened)
+        assertEquals(1, closed)
+    }
+
+    @Test
+    fun a_blocked_message_reports_the_origin_and_not_the_url() {
+        val reporter = RecordingReporter()
+        val router = GlomoPayEventRouter(
+            RecordingListener(),
+            devMode = false,
+            onComplete = {},
+            errorReporter = reporter,
+            trustedOrigins = trusted,
+        )
+
+        router.handle(paymentSuccess(), "flow", "https://bank.example/3ds?token=secret123")
+
+        assertTrue(reporter.operations.contains("bridge_message_untrusted_origin"))
     }
 
     private class RecordingListener : GlomoPayListener {

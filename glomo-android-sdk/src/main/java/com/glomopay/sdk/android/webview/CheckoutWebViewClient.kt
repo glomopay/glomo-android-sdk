@@ -19,10 +19,13 @@ internal class CheckoutWebViewClient(
     private val onUrlChangedCallback: (String) -> Unit,
     private val onErrorCallback: (ConnectionError) -> Unit,
     private val onNavigationBlocked: ((String) -> Unit)? = null,
+    /** Which top-level navigations this WebView may make. Only consulted when a blocked
+     *  callback is supplied, so a WebView that passes neither is unrestricted as before. */
+    private val navigationPolicy: (String) -> Boolean = FlowNavigationPolicy::allows,
 ) : WebViewClient() {
     private fun blockNavigation(url: String): Boolean {
         val blocked = onNavigationBlocked ?: return false
-        if (FlowNavigationPolicy.allows(url)) return false
+        if (navigationPolicy(url)) return false
         blocked(url)
         return true
     }

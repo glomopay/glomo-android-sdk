@@ -26,7 +26,9 @@ internal object AnalyticsEvents {
 
 internal enum class AnalyticsPage { LOADING, CHECKOUT, BANK_REDIRECT, EDUCATION_CAROUSEL, ERROR }
 
-internal enum class AnalyticsAction { BANK_REDIRECT, DOCUMENT_UPLOAD, DEVICE_PERMISSION, WEBVIEW_LOAD, NAVIGATION, EDUCATION_CAROUSEL }
+internal enum class AnalyticsAction {
+    BANK_REDIRECT, DOCUMENT_UPLOAD, DEVICE_PERMISSION, WEBVIEW_LOAD, NAVIGATION, EDUCATION_CAROUSEL, BRIDGE_MESSAGE
+}
 
 internal enum class ActionErrorCode {
     PICKER_ERROR,
@@ -37,6 +39,8 @@ internal enum class ActionErrorCode {
     CONTENT_PROCESS_TERMINATED,
     NON_HTTP_SCHEME,
     INVALID_WINDOW_OPEN_URL,
+    UNTRUSTED_ORIGIN,
+    EXTERNAL_HOST,
     RENDER_FAILED,
     OTHER,
 }

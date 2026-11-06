@@ -1,5 +1,6 @@
 package com.glomopay.sdk.android.bridge
 
+import com.glomopay.sdk.android.ConfigManager
 import com.glomopay.sdk.android.GlomoPayPayload
 import com.glomopay.sdk.android.GlomoPayResult
 import com.glomopay.sdk.android.GlomoPayListener
@@ -28,16 +29,24 @@ internal class GlomoPayEventRouter(
     private val errorReporter: SdkErrorReporter = NoOpSdkErrorReporter,
     private val onBridgeReady: () -> Unit = {},
     private val onDependenciesFailed: () -> Unit = {},
+    private val trustedOrigins: Set<String> = emptySet(),
 ) {
     private val listener = listener?.let { com.glomopay.sdk.android.GuardedGlomoPayListener(it, errorReporter) }
     private val terminalDelivered = AtomicBoolean(false)
 
     fun stop() { terminalDelivered.set(true) }
 
-    fun handle(rawMessage: String, webViewType: String = "main") {
+    fun handle(rawMessage: String, webViewType: String = "main", documentUrl: String? = null) {
         if (terminalDelivered.get()) return
         try {
             val envelope = JSONObject(rawMessage).toMap()
+            val type = envelope["type"]?.toString()
+            if (type in PRIVILEGED_TYPES &&
+                !ConfigManager.isTrustedPageOrigin(documentUrl, trustedOrigins)
+            ) {
+                reportUntrustedMessage(type, webViewType, documentUrl)
+                return
+            }
             handleEnvelope(envelope, webViewType)
         } catch (error: Exception) {
             errorReporter.capture(
@@ -45,10 +54,21 @@ internal class GlomoPayEventRouter(
                 error = error,
                 context = mapOf("webview_type" to webViewType),
             )
-            listener?.onSdkError(listOf(SdkError(SdkErrorType.UNKNOWN, error.message ?: "Unable to parse WebView event")))
+            // Never `error.message`. `JSONTokener.syntaxError` composes it as
+            // "<problem> at character N of <the whole input>", so the exception describing the
+            // failure is also carrying the message that failed - a bridge payload the host has no
+            // business logging.
+            listener?.onSdkError(listOf(SdkError(SdkErrorType.UNKNOWN, "Unable to parse WebView event")))
         }
     }
 
+    /**
+     * Dispatches an already-decoded envelope.
+     *
+     * Deliberately ungated: [handle] is the bridge boundary and the only thing a WebView can
+     * reach, so the origin check belongs there and this stays the SDK's own dispatcher. Anything
+     * that starts feeding this from a WebView has to bring the check with it.
+     */
     fun handleEnvelope(envelope: Map<String, Any?>, webViewType: String = "main") {
         if (terminalDelivered.get()) return
         try {
@@ -81,8 +101,32 @@ internal class GlomoPayEventRouter(
                 error = error,
                 context = mapOf("webview_type" to webViewType),
             )
-            listener?.onSdkError(listOf(SdkError(SdkErrorType.UNKNOWN, error.message ?: "Unable to parse WebView event")))
+            // Never `error.message`. `JSONTokener.syntaxError` composes it as
+            // "<problem> at character N of <the whole input>", so the exception describing the
+            // failure is also carrying the message that failed - a bridge payload the host has no
+            // business logging.
+            listener?.onSdkError(listOf(SdkError(SdkErrorType.UNKNOWN, "Unable to parse WebView event")))
         }
+    }
+
+    /**
+     * A privileged message from a document that is not ours. Reported, never raised on
+     * `onSdkError`: before the page's first event that raise is the terminal error screen, so it
+     * would hand any bank page a way to end a checkout it can no longer speak for.
+     */
+    private fun reportUntrustedMessage(type: String?, webViewType: String, documentUrl: String?) {
+        analytics.bridgeMessageFromUntrustedOrigin(type, webViewType)
+        errorReporter.capture(
+            operation = "bridge_message_untrusted_origin",
+            error = IllegalStateException("Bridge message from an untrusted origin"),
+            context = mapOf(
+                "webview_type" to webViewType,
+                "message_type" to type,
+                // The origin, never the URL: a bank redirect carries whatever the acquirer put in
+                // its query string.
+                "origin" to documentUrl?.let(ConfigManager::originOf),
+            ),
+        )
     }
 
     private fun handleConsole(envelope: Map<String, Any?>) {
@@ -207,6 +251,24 @@ internal class GlomoPayEventRouter(
 
     private fun isValidPaymentPayload(payload: GlomoPayPayload): Boolean =
         com.glomopay.sdk.android.Validator.isValidPaymentPayload(payload)
+
+    private companion object {
+        /**
+         * The types a bank or 3-D Secure page must not be able to send.
+         *
+         * `message` carries every payment and lifecycle event, including `payment.success`.
+         * `dependencies.failed_to_load` is the checkout page reporting its own failure, and from
+         * anyone else it is a way to put a checkout on the error screen.
+         *
+         * `window.open`, `window.close`, `console` and `file.input` are absent on purpose.
+         * `GlomoPayInjectionScripts.flow` replaces `window.open`/`window.close`/`location` on the
+         * bank's own document, so those arrive from bank origins by design - a bank calling
+         * `window.close()` is how the overlay dismisses after a challenge. They are also
+         * unprivileged: `window.open` is URL validated and only navigates the overlay the user is
+         * already in.
+         */
+        val PRIVILEGED_TYPES = setOf("message", "dependencies.failed_to_load")
+    }
 
     private fun JSONObject.toMap(): Map<String, Any?> = keys().asSequence().associateWith { key ->
         when (val value = get(key)) {
