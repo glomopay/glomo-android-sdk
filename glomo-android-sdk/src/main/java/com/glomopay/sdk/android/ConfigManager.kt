@@ -94,9 +94,40 @@ public object ConfigManager {
             originOf(CAROUSEL_BASE_URL),
         )
 
-    /** Whether [url] was served by one of [trusted]. Unparseable or non-http(s) is never trusted. */
-    internal fun isTrustedPageOrigin(url: String?, trusted: Set<String>): Boolean =
-        url != null && originOf(url) in trusted
+    /**
+     * Domains GlomoPay serves checkout from.
+     *
+     * A suffix rule rather than a fixed host list, because a shipped SDK cannot be updated when a
+     * checkout host moves or redirects between these two - an exact list would strand every
+     * installed version on the old host the day the move happens. The Flutter SDK's
+     * `CheckoutOriginPolicy` has worked this way since KAN-8742; this is the same rule.
+     */
+    internal val GLOMO_DOMAINS: List<String> = listOf("glomopay.com", "glomo.one")
+
+    /** Exact host, or a subdomain of one. Never a bare suffix - `attackerglomopay.com` is not ours. */
+    internal fun isGlomoHost(host: String): Boolean {
+        val lower = host.lowercase()
+        return GLOMO_DOMAINS.any { lower == it || lower.endsWith(".$it") }
+    }
+
+    /**
+     * Whether [url] is one of ours.
+     *
+     * Two sources of trust, and the second is what keeps the first from having to be exhaustive:
+     * - https on a GlomoPay domain, default port only. Survives a domain move.
+     * - an exact origin the SDK itself navigated to, from [trustedPageOrigins]. That is what
+     *   covers the education carousel on Firebase Hosting and a merchant's own
+     *   [GlomoPayConfig.server], neither of which is on a GlomoPay domain.
+     */
+    internal fun isTrustedPageOrigin(url: String?, trusted: Set<String>): Boolean {
+        val origin = url?.let(::originOf) ?: return false
+        if (origin in trusted) return true
+        // Default port only: `originOf` keeps an explicit non-default port, so a port here means
+        // the origin is not plain https on the domain and the suffix rule must not cover it.
+        val host = origin.removePrefix("https://")
+        if (host == origin || ':' in host) return false
+        return isGlomoHost(host)
+    }
 
     /** [colorScheme] carries the same resolved value on the same param name - the carousel is on
      * the same contract as the checkout pages. */
