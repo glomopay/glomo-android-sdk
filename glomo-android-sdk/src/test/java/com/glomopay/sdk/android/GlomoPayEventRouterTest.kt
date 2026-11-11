@@ -457,6 +457,51 @@ class GlomoPayEventRouterTest {
         assertTrue(result is GlomoPayResult.Success)
     }
 
+    /**
+     * The gate has to read origins the same way `MainNavigationPolicy` does. An exact-set match
+     * here and a suffix match there is the worst combination: the page keeps loading after a
+     * domain move and every payment event it sends is silently dropped.
+     */
+    @Test
+    fun payment_event_from_a_glomo_domain_the_config_never_named_is_delivered() {
+        val listener = RecordingListener()
+        var result: GlomoPayResult? = null
+        val router = GlomoPayEventRouter(
+            listener,
+            devMode = false,
+            onComplete = { result = it },
+            trustedOrigins = trusted,
+        )
+
+        router.handle(paymentSuccess(), "main", glomoSender("https://checkout.glomo.one"))
+
+        assertEquals("order_1", listener.success.single().orderId)
+        assertTrue(result is GlomoPayResult.Success)
+    }
+
+    @Test
+    fun the_suffix_rule_does_not_let_a_lookalike_sender_through() {
+        val listener = RecordingListener()
+        val router = GlomoPayEventRouter(
+            listener,
+            devMode = false,
+            onComplete = {},
+            trustedOrigins = trusted,
+        )
+
+        for (origin in listOf(
+            "https://glomo.one.attacker.test",
+            "https://attacker-glomo.one",
+            "https://notglomopay.com",
+            "http://checkout.glomo.one",
+            "https://checkout.glomo.one:8443",
+        )) {
+            router.handle(paymentSuccess(), "main", glomoSender(origin))
+        }
+
+        assertTrue(listener.success.isEmpty())
+    }
+
     @Test
     fun payment_event_with_no_known_document_is_dropped() {
         val listener = RecordingListener()

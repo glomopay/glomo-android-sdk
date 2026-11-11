@@ -124,7 +124,7 @@ internal class GlomoPayEventRouter(
      * would hand any bank page a way to end a checkout it can no longer speak for.
      */
     private fun isTrustedSender(sender: BridgeMessageSender): Boolean =
-        sender.isMainFrame && sender.origin != null && sender.origin in trustedOrigins
+        sender.isMainFrame && ConfigManager.isTrustedPageOrigin(sender.origin, trustedOrigins)
 
     private fun reportUntrustedMessage(type: String?, webViewType: String, sender: BridgeMessageSender) {
         analytics.bridgeMessageFromUntrustedOrigin(type, webViewType)

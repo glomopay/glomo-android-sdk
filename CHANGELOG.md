@@ -16,8 +16,10 @@ public API changes require a new major release.
   closing the overlay after a 3-D Secure challenge works exactly as before. No integration change
   is required, and the callbacks your app receives from a normal payment are unchanged.
 - **The main checkout and education-carousel WebViews are now restricted to Glomo origins.** Both
-  only ever loaded Glomo pages; that is now enforced rather than assumed. The bank redirect
-  overlay is deliberately not restricted by host, since the bank decides where it goes next.
+  only ever loaded Glomo pages; that is now enforced rather than assumed, and a top-level
+  navigation anywhere else is blocked and reported. Subframe loads - card entry, 3-D Secure,
+  server-to-server - are unaffected, and the bank redirect overlay is deliberately not restricted
+  by host, since the bank decides where it goes next.
 - The allow-list is derived from the base URLs this SDK navigates to, including a custom
   `GlomoPayConfig.server`, so a self-hosted checkout is covered without extra setup.
 - The bridge now uses the WebView's own frame attribution where the device's WebView provider

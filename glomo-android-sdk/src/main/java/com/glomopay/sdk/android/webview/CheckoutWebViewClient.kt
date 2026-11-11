@@ -31,7 +31,10 @@ internal class CheckoutWebViewClient(
     }
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-        if (blockNavigation(request.url.toString())) return true
+        // Main frame only. This fires for subframe navigations too, and the checkout page's own
+        // embeds - card fields, the s2s frame, 3-D Secure - are on hosts that are not ours and
+        // have to keep loading. The policy is about where the document itself goes.
+        if (request.isForMainFrame && blockNavigation(request.url.toString())) return true
         onUrlChangedCallback(request.url.toString())
         return false
     }
