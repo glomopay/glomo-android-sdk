@@ -40,6 +40,8 @@ import com.glomopay.sdk.android.SdkError
 import com.glomopay.sdk.android.SdkErrorType
 import com.glomopay.sdk.android.bridge.GlomoPayEventRouter
 import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
+import com.glomopay.sdk.android.bridge.BridgeMessageSender
+import com.glomopay.sdk.android.bridge.GlomoPayBridgeInstaller
 import com.glomopay.sdk.android.bridge.GlomoPayJavaScriptBridge
 import com.glomopay.sdk.android.analytics.AnalyticsPage
 import com.glomopay.sdk.android.analytics.AnalyticsSanitizer
@@ -66,7 +68,6 @@ import com.glomopay.sdk.android.state.CheckoutUiState
 import com.glomopay.sdk.android.state.withLoadingProgress
 import com.glomopay.sdk.android.webview.CheckoutWebViewClient
 import com.glomopay.sdk.android.webview.CheckoutWebViewFactory
-import com.glomopay.sdk.android.webview.MainNavigationPolicy
 import com.glomopay.sdk.android.webview.MainNavigationPolicy
 
 /** Native main checkout host. JS events are attached in the bridge phase. */
@@ -265,11 +266,7 @@ public class GlomoPayCheckoutActivity : Activity() {
                 onUrlChangedCallback = { url -> currentUrl = url },
                 onErrorCallback = ::handleConnectionError,
             )
-            // `webView.url` is read inside `runOnUiThread` on purpose: a @JavascriptInterface
-            // method runs on a WebView worker thread, where the property is not safe to touch.
-            addJavascriptInterface(GlomoPayJavaScriptBridge { raw ->
-                runOnUiThread { eventRouter.handle(raw, documentUrl = webView.url) }
-            }, "GlomoPayBridge")
+            installBridge(this, "GlomoPayBridge", "main")
         }
 
         rootView = FrameLayout(this)
@@ -901,9 +898,7 @@ public class GlomoPayCheckoutActivity : Activity() {
                 ))
             },
         )
-        flow.addJavascriptInterface(GlomoPayJavaScriptBridge { raw ->
-            runOnUiThread { eventRouter.handle(raw, "flow", documentUrl = flow.url) }
-        }, "GlomoPayFlowBridge")
+        installBridge(flow, "GlomoPayFlowBridge", "flow")
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(flow, GlomoPayInjectionScripts.flow() + GlomoPayInjectionScripts.bankViewportFit(), setOf("*"))
         }
@@ -1043,6 +1038,34 @@ public class GlomoPayCheckoutActivity : Activity() {
         val completed = result is GlomoPayResult.Success || result is GlomoPayResult.JourneyCompleted
         setResult(if (completed) RESULT_OK else RESULT_CANCELED)
         finish()
+    }
+
+    /**
+     * Registers a bridge, preferring the framework's own frame attribution.
+     *
+     * `addWebMessageListener` reports the sending frame's origin and whether it is the main frame.
+     * Where the WebView provider is too old for it, `addJavascriptInterface` is the fallback and
+     * the best available answer is the WebView's own URL - the top-level document's, which cannot
+     * tell a subframe apart from the page around it. Read inside `runOnUiThread` because a
+     * @JavascriptInterface method runs on a WebView worker thread.
+     */
+    private fun installBridge(target: android.webkit.WebView, name: String, webViewType: String) {
+        val installed = GlomoPayBridgeInstaller.install(target, name) { raw, sender ->
+            runOnUiThread { eventRouter.handle(raw, webViewType, sender) }
+        }
+        if (installed) return
+        target.addJavascriptInterface(
+            GlomoPayJavaScriptBridge { raw ->
+                runOnUiThread {
+                    eventRouter.handle(
+                        raw,
+                        webViewType,
+                        BridgeMessageSender(ConfigManager.originOf(target.url ?: ""), isMainFrame = true),
+                    )
+                }
+            },
+            name,
+        )
     }
 
     /**

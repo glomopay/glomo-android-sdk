@@ -1,5 +1,6 @@
 package com.glomopay.sdk.android
 
+import com.glomopay.sdk.android.bridge.BridgeMessageSender
 import com.glomopay.sdk.android.bridge.GlomoPayEventRouter
 import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
 import com.glomopay.sdk.android.analytics.AnalyticsEvent
@@ -412,6 +413,9 @@ class GlomoPayEventRouterTest {
 
     private val trusted = setOf("https://checkout.glomopay.com")
 
+    private fun glomoSender(origin: String, isMainFrame: Boolean = true) =
+        BridgeMessageSender(origin = origin, isMainFrame = isMainFrame)
+
     private fun paymentSuccess(): String =
         """{"type":"message","data":{"type":"payment.success","payload":""" +
             """{"orderId":"order_1","paymentId":"pay_1","signature":"sig_1"}}}"""
@@ -429,7 +433,7 @@ class GlomoPayEventRouterTest {
             trustedOrigins = trusted,
         )
 
-        router.handle(paymentSuccess(), "flow", documentUrl = "https://netbanking.bank.example/3ds")
+        router.handle(paymentSuccess(), "flow", glomoSender("https://netbanking.bank.example"))
 
         assertTrue(listener.success.isEmpty())
         assertTrue(result == null)
@@ -447,11 +451,7 @@ class GlomoPayEventRouterTest {
             trustedOrigins = trusted,
         )
 
-        router.handle(
-            paymentSuccess(),
-            "main",
-            documentUrl = "https://checkout.glomopay.com/?orderId=order_1&publicKey=live_abc",
-        )
+        router.handle(paymentSuccess(), "main", glomoSender("https://checkout.glomopay.com"))
 
         assertEquals("order_1", listener.success.single().orderId)
         assertTrue(result is GlomoPayResult.Success)
@@ -467,7 +467,7 @@ class GlomoPayEventRouterTest {
             trustedOrigins = trusted,
         )
 
-        router.handle(paymentSuccess(), "main", documentUrl = null)
+        router.handle(paymentSuccess(), "main", BridgeMessageSender(origin = null, isMainFrame = true))
 
         assertTrue(listener.success.isEmpty())
     }
@@ -476,6 +476,25 @@ class GlomoPayEventRouterTest {
      * The flow injection replaces `window.close` on the bank's own document, so a bank calling it
      * is how the overlay dismisses after a challenge. Gating it would strand the user.
      */
+    /**
+     * `addWebMessageListener` reports the sending frame, so a third-party iframe embedded in our
+     * own checkout page is distinguishable from the page itself.
+     */
+    @Test
+    fun payment_event_from_a_subframe_of_our_own_page_is_dropped() {
+        val listener = RecordingListener()
+        val router = GlomoPayEventRouter(
+            listener,
+            devMode = false,
+            onComplete = {},
+            trustedOrigins = trusted,
+        )
+
+        router.handle(paymentSuccess(), "main", glomoSender("https://checkout.glomopay.com", isMainFrame = false))
+
+        assertTrue(listener.success.isEmpty())
+    }
+
     @Test
     fun bank_driven_navigation_still_works_from_a_bank_page() {
         val listener = RecordingListener()
@@ -489,7 +508,7 @@ class GlomoPayEventRouterTest {
             onWindowClose = { closed++ },
             trustedOrigins = trusted,
         )
-        val bank = "https://netbanking.bank.example/3ds"
+        val bank = glomoSender("https://netbanking.bank.example")
 
         router.handle("""{"type":"window.open","url":"https://bank.example/step2"}""", "flow", bank)
         router.handle("""{"type":"window.close"}""", "flow", bank)
@@ -509,7 +528,7 @@ class GlomoPayEventRouterTest {
             trustedOrigins = trusted,
         )
 
-        router.handle(paymentSuccess(), "flow", "https://bank.example/3ds?token=secret123")
+        router.handle(paymentSuccess(), "flow", glomoSender("https://bank.example"))
 
         assertTrue(reporter.operations.contains("bridge_message_untrusted_origin"))
     }

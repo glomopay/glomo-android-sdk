@@ -36,15 +36,24 @@ internal class GlomoPayEventRouter(
 
     fun stop() { terminalDelivered.set(true) }
 
-    fun handle(rawMessage: String, webViewType: String = "main", documentUrl: String? = null) {
+    /**
+     * The bridge boundary: everything a WebView can reach arrives here.
+     *
+     * [sender] is the WebView's own attribution when the provider supports it. On a provider that
+     * does not, the caller supplies the top-level document's URL as a weaker stand-in and marks
+     * the frame unknown - see [GlomoPayBridgeInstaller].
+     */
+    fun handle(
+        rawMessage: String,
+        webViewType: String = "main",
+        sender: BridgeMessageSender = BridgeMessageSender(origin = null, isMainFrame = true),
+    ) {
         if (terminalDelivered.get()) return
         try {
             val envelope = JSONObject(rawMessage).toMap()
             val type = envelope["type"]?.toString()
-            if (type in PRIVILEGED_TYPES &&
-                !ConfigManager.isTrustedPageOrigin(documentUrl, trustedOrigins)
-            ) {
-                reportUntrustedMessage(type, webViewType, documentUrl)
+            if (type in PRIVILEGED_TYPES && !isTrustedSender(sender)) {
+                reportUntrustedMessage(type, webViewType, sender)
                 return
             }
             handleEnvelope(envelope, webViewType)
@@ -114,17 +123,21 @@ internal class GlomoPayEventRouter(
      * `onSdkError`: before the page's first event that raise is the terminal error screen, so it
      * would hand any bank page a way to end a checkout it can no longer speak for.
      */
-    private fun reportUntrustedMessage(type: String?, webViewType: String, documentUrl: String?) {
+    private fun isTrustedSender(sender: BridgeMessageSender): Boolean =
+        sender.isMainFrame && sender.origin != null && sender.origin in trustedOrigins
+
+    private fun reportUntrustedMessage(type: String?, webViewType: String, sender: BridgeMessageSender) {
         analytics.bridgeMessageFromUntrustedOrigin(type, webViewType)
         errorReporter.capture(
             operation = "bridge_message_untrusted_origin",
-            error = IllegalStateException("Bridge message from an untrusted origin"),
+            error = IllegalStateException("Bridge message from an untrusted frame"),
             context = mapOf(
                 "webview_type" to webViewType,
                 "message_type" to type,
+                "is_main_frame" to sender.isMainFrame,
                 // The origin, never the URL: a bank redirect carries whatever the acquirer put in
                 // its query string.
-                "origin" to documentUrl?.let(ConfigManager::originOf),
+                "origin" to sender.origin,
             ),
         )
     }

@@ -20,6 +20,11 @@ public API changes require a new major release.
   overlay is deliberately not restricted by host, since the bank decides where it goes next.
 - The allow-list is derived from the base URLs this SDK navigates to, including a custom
   `GlomoPayConfig.server`, so a self-hosted checkout is covered without extra setup.
+- The bridge now uses the WebView's own frame attribution where the device's WebView provider
+  supports it, so a message can be traced to the frame that sent it rather than to the page
+  around it. On an older provider the SDK falls back to the previous channel.
+- The injected `message` relay now forwards only same-document messages. A third-party frame
+  embedded in a Glomo page can no longer have a payment event relayed on its behalf.
 
 ### Fixed
 
