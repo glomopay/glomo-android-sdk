@@ -117,6 +117,23 @@ internal class CheckoutAnalytics(private val tracker: AnalyticsTracker) {
         actionFailed(AnalyticsAction.NAVIGATION, ActionErrorCode.INVALID_WINDOW_OPEN_URL, mapOf("webview_type" to webViewType))
     }
 
+    fun bridgeMessageFromUntrustedOrigin(messageType: String?, webViewType: String) {
+        actionFailed(
+            AnalyticsAction.BRIDGE_MESSAGE,
+            ActionErrorCode.UNTRUSTED_ORIGIN,
+            mapOf("webview_type" to webViewType, "message_type" to messageType),
+        )
+    }
+
+    /** A top-level navigation the main WebView is not allowed to make. Host, never the URL. */
+    fun blockedMainNavigation(host: String) {
+        actionFailed(
+            AnalyticsAction.NAVIGATION,
+            ActionErrorCode.EXTERNAL_HOST,
+            mapOf("webview_type" to MAIN_WEBVIEW, "blocked_host" to host),
+        )
+    }
+
     fun documentUploadFailed(acceptTypes: String?) {
         actionFailed(AnalyticsAction.DOCUMENT_UPLOAD, ActionErrorCode.PICKER_ERROR, propertiesOf("accept_types" to acceptTypes))
     }

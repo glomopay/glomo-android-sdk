@@ -19,16 +19,22 @@ internal class CheckoutWebViewClient(
     private val onUrlChangedCallback: (String) -> Unit,
     private val onErrorCallback: (ConnectionError) -> Unit,
     private val onNavigationBlocked: ((String) -> Unit)? = null,
+    /** Which top-level navigations this WebView may make. Only consulted when a blocked
+     *  callback is supplied, so a WebView that passes neither is unrestricted as before. */
+    private val navigationPolicy: (String) -> Boolean = FlowNavigationPolicy::allows,
 ) : WebViewClient() {
     private fun blockNavigation(url: String): Boolean {
         val blocked = onNavigationBlocked ?: return false
-        if (FlowNavigationPolicy.allows(url)) return false
+        if (navigationPolicy(url)) return false
         blocked(url)
         return true
     }
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-        if (blockNavigation(request.url.toString())) return true
+        // Main frame only. This fires for subframe navigations too, and the checkout page's own
+        // embeds - card fields, the s2s frame, 3-D Secure - are on hosts that are not ours and
+        // have to keep loading. The policy is about where the document itself goes.
+        if (request.isForMainFrame && blockNavigation(request.url.toString())) return true
         onUrlChangedCallback(request.url.toString())
         return false
     }

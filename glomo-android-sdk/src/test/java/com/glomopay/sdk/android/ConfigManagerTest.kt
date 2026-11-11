@@ -189,4 +189,52 @@ class ConfigManagerTest {
         ?.firstOrNull { it.first() == name }
         ?.getOrNull(1)
         ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
+
+    @Test
+    fun trusts_a_glomo_domain_the_config_never_named() {
+        // The whole point: an installed SDK cannot be updated the day checkout moves domain.
+        val config = GlomoPayConfig(publicKey = "live_abc", orderId = "order_1")
+        val trusted = ConfigManager.trustedPageOrigins(config)
+
+        assertTrue(ConfigManager.isTrustedPageOrigin("https://checkout.glomo.one/pay", trusted))
+        assertTrue(ConfigManager.isTrustedPageOrigin("https://lrs-checkout.glomo.one/", trusted))
+        assertFalse(trusted.contains("https://checkout.glomo.one"))
+    }
+
+    @Test
+    fun the_suffix_rule_does_not_admit_a_lookalike() {
+        val none = emptySet<String>()
+        assertFalse(ConfigManager.isTrustedPageOrigin("https://glomo.one.attacker.test/", none))
+        assertFalse(ConfigManager.isTrustedPageOrigin("https://attackerglomo.one/", none))
+        assertFalse(ConfigManager.isTrustedPageOrigin("https://notglomopay.com/", none))
+    }
+
+    @Test
+    fun the_suffix_rule_is_https_on_the_default_port_only() {
+        val none = emptySet<String>()
+        assertFalse(ConfigManager.isTrustedPageOrigin("http://checkout.glomo.one/", none))
+        assertFalse(ConfigManager.isTrustedPageOrigin("https://checkout.glomo.one:8443/", none))
+        assertTrue(ConfigManager.isTrustedPageOrigin("https://checkout.glomo.one:443/", none))
+    }
+
+    @Test
+    fun configured_origins_off_a_glomo_domain_are_still_trusted() {
+        val config = GlomoPayConfig(publicKey = "live_abc", orderId = "order_1")
+        val trusted = ConfigManager.trustedPageOrigins(config)
+
+        // Firebase Hosting, not a Glomo domain - covered only by the configured set.
+        assertFalse(ConfigManager.isGlomoHost("glomopay-utilities.web.app"))
+        assertTrue(ConfigManager.isTrustedPageOrigin("https://glomopay-utilities.web.app/x", trusted))
+    }
+
+    @Test
+    fun a_merchant_custom_server_is_trusted() {
+        val config = GlomoPayConfig(
+            publicKey = "live_abc",
+            orderId = "order_1",
+            server = "https://pay.merchant.example",
+        )
+        val trusted = ConfigManager.trustedPageOrigins(config)
+        assertTrue(ConfigManager.isTrustedPageOrigin("https://pay.merchant.example/checkout", trusted))
+    }
 }

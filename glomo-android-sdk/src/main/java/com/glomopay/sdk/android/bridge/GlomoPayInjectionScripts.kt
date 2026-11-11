@@ -289,7 +289,13 @@ internal object GlomoPayInjectionScripts {
             bridge(JSON.stringify({type:'webview.error',errorType:'unhandled_rejection',message:String(e.reason||'Unhandled promise rejection')}));
             sendLog('error', 'Unhandled Rejection: ' + e.reason);
           });
+          // Same-document only. This listener forwards to a privileged channel, so without the
+          // source check a third-party iframe on the page - a card partner, an s2s or 3DS frame -
+          // could `top.postMessage({type:'payment.success'})` and have it relayed as if the page
+          // itself had said it. The native origin check cannot see that: by then the message is
+          // coming from our own document.
           window.addEventListener('message', function(e) {
+            if (e.source !== window || e.origin !== location.origin) return;
             if (e.data) bridge(JSON.stringify({type:'message',data:e.data}));
           });
           document.addEventListener('click', function(e) {

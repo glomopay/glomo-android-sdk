@@ -40,6 +40,8 @@ import com.glomopay.sdk.android.SdkError
 import com.glomopay.sdk.android.SdkErrorType
 import com.glomopay.sdk.android.bridge.GlomoPayEventRouter
 import com.glomopay.sdk.android.bridge.GlomoPayInjectionScripts
+import com.glomopay.sdk.android.bridge.BridgeMessageSender
+import com.glomopay.sdk.android.bridge.GlomoPayBridgeInstaller
 import com.glomopay.sdk.android.bridge.GlomoPayJavaScriptBridge
 import com.glomopay.sdk.android.analytics.AnalyticsPage
 import com.glomopay.sdk.android.analytics.AnalyticsSanitizer
@@ -66,12 +68,19 @@ import com.glomopay.sdk.android.state.CheckoutUiState
 import com.glomopay.sdk.android.state.withLoadingProgress
 import com.glomopay.sdk.android.webview.CheckoutWebViewClient
 import com.glomopay.sdk.android.webview.CheckoutWebViewFactory
+import com.glomopay.sdk.android.webview.MainNavigationPolicy
 
 /** Native main checkout host. JS events are attached in the bridge phase. */
 public class GlomoPayCheckoutActivity : Activity() {
     private lateinit var webView: android.webkit.WebView
     private lateinit var loadingLabel: TextView
     private lateinit var config: GlomoPayConfig
+
+    /**
+     * Origins allowed to send a privileged bridge message, and the only ones the main WebView may
+     * navigate to. Resolved once from the config the checkout opened with.
+     */
+    private val trustedOrigins: Set<String> by lazy { ConfigManager.trustedPageOrigins(config) }
     private var sessionId: String? = null
     private var listener: com.glomopay.sdk.android.GlomoPayListener? = null
     private var analytics = CheckoutAnalytics(NoOpAnalyticsTracker)
@@ -174,6 +183,7 @@ public class GlomoPayCheckoutActivity : Activity() {
             return
         }
         eventRouter = GlomoPayEventRouter(
+            trustedOrigins = trustedOrigins,
             listener = listener,
             devMode = com.glomopay.sdk.android.BuildConfig.GLOMO_INTERNAL_BUILD,
             onComplete = { finishWith(it) },
@@ -237,6 +247,8 @@ public class GlomoPayCheckoutActivity : Activity() {
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
         webView = CheckoutWebViewFactory.create(this) { reportDarkeningUnsupported("main", it) }.apply {
             webViewClient = CheckoutWebViewClient(
+                onNavigationBlocked = ::onMainNavigationBlocked,
+                navigationPolicy = MainNavigationPolicy(trustedOrigins)::allows,
                 onPageStartedCallback = { url ->
                     currentUrl = url
                     advanceOpenStep(com.glomopay.sdk.android.state.CheckoutOpenStep.NAVIGATION_STARTED)
@@ -254,9 +266,7 @@ public class GlomoPayCheckoutActivity : Activity() {
                 onUrlChangedCallback = { url -> currentUrl = url },
                 onErrorCallback = ::handleConnectionError,
             )
-            addJavascriptInterface(GlomoPayJavaScriptBridge { raw ->
-                runOnUiThread { eventRouter.handle(raw) }
-            }, "GlomoPayBridge")
+            installBridge(this, "GlomoPayBridge", "main")
         }
 
         rootView = FrameLayout(this)
@@ -626,6 +636,8 @@ public class GlomoPayCheckoutActivity : Activity() {
         loadedCarouselUrl = carouselUrl
         currentCarouselUrl = null
         carousel.webViewClient = CheckoutWebViewClient(
+            onNavigationBlocked = ::onMainNavigationBlocked,
+            navigationPolicy = MainNavigationPolicy(trustedOrigins)::allows,
             onPageStartedCallback = {
                 carousel.evaluateJavascript(GlomoPayInjectionScripts.carousel(), null)
             },
@@ -886,9 +898,7 @@ public class GlomoPayCheckoutActivity : Activity() {
                 ))
             },
         )
-        flow.addJavascriptInterface(GlomoPayJavaScriptBridge { raw ->
-            runOnUiThread { eventRouter.handle(raw, "flow") }
-        }, "GlomoPayFlowBridge")
+        installBridge(flow, "GlomoPayFlowBridge", "flow")
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(flow, GlomoPayInjectionScripts.flow() + GlomoPayInjectionScripts.bankViewportFit(), setOf("*"))
         }
@@ -1028,6 +1038,44 @@ public class GlomoPayCheckoutActivity : Activity() {
         val completed = result is GlomoPayResult.Success || result is GlomoPayResult.JourneyCompleted
         setResult(if (completed) RESULT_OK else RESULT_CANCELED)
         finish()
+    }
+
+    /**
+     * Registers a bridge, preferring the framework's own frame attribution.
+     *
+     * `addWebMessageListener` reports the sending frame's origin and whether it is the main frame.
+     * Where the WebView provider is too old for it, `addJavascriptInterface` is the fallback and
+     * the best available answer is the WebView's own URL - the top-level document's, which cannot
+     * tell a subframe apart from the page around it. Read inside `runOnUiThread` because a
+     * @JavascriptInterface method runs on a WebView worker thread.
+     */
+    private fun installBridge(target: android.webkit.WebView, name: String, webViewType: String) {
+        val installed = GlomoPayBridgeInstaller.install(target, name) { raw, sender ->
+            runOnUiThread { eventRouter.handle(raw, webViewType, sender) }
+        }
+        if (installed) return
+        target.addJavascriptInterface(
+            GlomoPayJavaScriptBridge { raw ->
+                runOnUiThread {
+                    eventRouter.handle(
+                        raw,
+                        webViewType,
+                        BridgeMessageSender(ConfigManager.originOf(target.url ?: ""), isMainFrame = true),
+                    )
+                }
+            },
+            name,
+        )
+    }
+
+    /**
+     * The main WebView tried to leave GlomoPay. Reported by host, never by URL - a checkout URL
+     * carries `orderId` and `publicKey` in its query string.
+     */
+    private fun onMainNavigationBlocked(url: String) {
+        val host = ConfigManager.originOf(url) ?: url.substringBefore(':', "").lowercase()
+        analytics.blockedMainNavigation(host)
+        listener?.onEvent("glomo_android_sdk.main.navigation_blocked", mapOf("origin" to host))
     }
 
     private fun onFlowNavigationBlocked(url: String) {
