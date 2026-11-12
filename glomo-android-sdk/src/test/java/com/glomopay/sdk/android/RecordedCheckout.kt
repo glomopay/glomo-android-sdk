@@ -43,6 +43,18 @@ internal class RecordedCheckout private constructor(
             .filterIsInstance<TextView>()
             .first { it.tag == GlomoPayCheckoutActivity.LOADING_LABEL_TAG }
 
+    /**
+     * The education carousel, once the flow overlay that holds it has been built.
+     *
+     * Null before then: it is created when an LRS checkout opens but is only attached to the
+     * view tree when the flow overlay is. By tag rather than by position, because the tree
+     * carries the main and flow WebViews too.
+     */
+    val carouselWebView: WebView?
+        get() = root.allViews()
+            .filterIsInstance<WebView>()
+            .firstOrNull { it.tag == GlomoPayCheckoutActivity.CAROUSEL_WEBVIEW_TAG }
+
     fun named(name: String): List<AnalyticsEvent> = events.filter { it.name == name }
 
     fun post(message: Map<String, Any?>, bridge: String = "GlomoPayBridge") {

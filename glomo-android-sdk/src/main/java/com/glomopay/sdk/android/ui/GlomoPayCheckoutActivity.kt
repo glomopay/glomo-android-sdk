@@ -688,6 +688,9 @@ public class GlomoPayCheckoutActivity : Activity() {
         if (currentOrderType != "lrs" || config.isSubscription) return
 
         val carousel = CheckoutWebViewFactory.create(this) { reportDarkeningUnsupported("carousel", it) }
+        // Tagged for the same reason as the loading label: it is attached to the flow overlay
+        // rather than the root, so "which WebView" is otherwise a question about tree order.
+        carousel.tag = CAROUSEL_WEBVIEW_TAG
         // Built after the order response has answered, so it takes the flag-gated colour directly
         // rather than waiting for the next re-paint.
         carousel.setBackgroundColor(CheckoutSurfaceColors.background(presentedColorScheme))
@@ -1181,6 +1184,9 @@ public class GlomoPayCheckoutActivity : Activity() {
 
         /** Internal: how the test harness finds the loading label. Not a contract. */
         internal const val LOADING_LABEL_TAG: String = "glomo_loading_label"
+
+        /** Internal: how the test harness finds the education carousel. Not a contract. */
+        internal const val CAROUSEL_WEBVIEW_TAG: String = "glomo_education_carousel"
         private const val RENDER_TIMEOUT_MS = 15_000L
         private val OPEN_TIMEOUT_MS =
             GlomoPayApiClient.totalRequestTimeoutMs + RENDER_TIMEOUT_MS + 5_000L

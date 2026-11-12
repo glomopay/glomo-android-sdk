@@ -408,6 +408,26 @@ class DarkModeFlagTest {
         // alias, so a reader guessing one finds nothing and silently stays light.
         assertFalse(ConfigManager.darkModeEnabled(mapOf("darkModeEnabled" to true)))
     }
+
+    @Test
+    fun it_reads_what_the_decoder_actually_hands_it() {
+        // The cases above pin the rule against a hand-built map; this one pins it against the
+        // decoder that fills the map in production. The distinction is not academic: `org.json`
+        // returns `java.lang.Boolean` for a JSON boolean and `java.lang.Integer` for `1`, so
+        // `as? Boolean` is a genuine identity check here - but a decoder that boxed both into
+        // one numeric type would hand a wire `1` back as true, which is how the same field read
+        // dark on iOS until it was fixed.
+        fun order(json: String) = GlomoPayApiClient("test_public_key").mapOrderFetchResponse(200, json)
+
+        assertTrue(ConfigManager.darkModeEnabled(order("""{"dark_mode_enabled":true}""")))
+        assertFalse(ConfigManager.darkModeEnabled(order("""{"dark_mode_enabled":false}""")))
+        assertFalse(ConfigManager.darkModeEnabled(order("""{"dark_mode_enabled":1}""")))
+        assertFalse(ConfigManager.darkModeEnabled(order("""{"dark_mode_enabled":1.0}""")))
+        assertFalse(ConfigManager.darkModeEnabled(order("""{"dark_mode_enabled":0}""")))
+        assertFalse(ConfigManager.darkModeEnabled(order("""{"dark_mode_enabled":"true"}""")))
+        assertFalse(ConfigManager.darkModeEnabled(order("""{"dark_mode_enabled":null}""")))
+        assertFalse(ConfigManager.darkModeEnabled(order("""{"id":"order_1"}""")))
+    }
 }
 
 class CheckoutSurfaceColorsTest {

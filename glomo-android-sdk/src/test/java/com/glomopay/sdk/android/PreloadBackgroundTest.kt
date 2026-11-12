@@ -108,6 +108,34 @@ class PreloadBackgroundTest {
     }
 
     @Test
+    fun the_carousel_follows_the_flag_on_an_lrs_order() {
+        // Deliberate, and pinned here so it cannot be read as an accident: the carousel is a
+        // Glomo page on a Glomo origin, so it is gated exactly like the main WebView. The
+        // carousel *host* - the FrameLayout around it - is the surface the ticket keeps light,
+        // and this PR does not touch it. iOS #18 gates the carousel WebView the same way.
+        val checkout = openWithFlag(
+            mapOf("lrs" to mapOf("id" to "lrs_1"), "dark_mode_enabled" to true),
+            GlomoColorScheme.DARK,
+        )
+        checkout.post(mapOf("type" to "window.open", "url" to "https://bank.example/3ds"))
+
+        val carousel = requireNotNull(checkout.carouselWebView) { "carousel was never attached" }
+        assertEquals(CheckoutSurfaceColors.DARK_BACKGROUND, shadowOf(carousel).backgroundColor)
+    }
+
+    @Test
+    fun the_carousel_stays_light_for_a_flag_off_merchant() {
+        val checkout = openWithFlag(
+            mapOf("lrs" to mapOf("id" to "lrs_1"), "dark_mode_enabled" to false),
+            GlomoColorScheme.DARK,
+        )
+        checkout.post(mapOf("type" to "window.open", "url" to "https://bank.example/3ds"))
+
+        val carousel = requireNotNull(checkout.carouselWebView) { "carousel was never attached" }
+        assertEquals(CheckoutSurfaceColors.LIGHT_BACKGROUND, shadowOf(carousel).backgroundColor)
+    }
+
+    @Test
     fun a_failed_order_fetch_stays_light() {
         // The flag is unknown when the fetch does not answer, and unknown means light. A fetch
         // that fails must not be able to leave a dark surface behind either.
