@@ -159,6 +159,25 @@ public object ConfigManager {
         return if (orderData.containsKey("lrs") && orderData["lrs"] != null) "lrs" else "standard"
     }
 
+    /**
+     * Whether the merchant has dark mode switched on, from the order response.
+     *
+     * The key is snake_case and has no camelCase alias, unlike `order_type`/`orderType` on the
+     * same payload - a reader guessing one finds nothing and silently stays light.
+     *
+     * An identity check against `true` rather than a truthiness one: the map value arrives as
+     * `Any?`, so a missing key, a null, the string "true" and a number are all possible and all
+     * mean light. Light is the safe answer, because the page renders light whenever the flag is
+     * off - dark is the only value that can be visibly wrong.
+     *
+     * `as? Boolean` is a real identity check on this input, which is not free everywhere: the
+     * map comes from `org.json.JSONObject`, whose `get` returns `java.lang.Boolean` for a JSON
+     * boolean and `java.lang.Integer` for `1`, so a number casts to null rather than converting.
+     * A decoder that boxes booleans and numbers into one type would need an explicit check.
+     */
+    internal fun darkModeEnabled(orderData: Map<String, Any?>): Boolean =
+        orderData["dark_mode_enabled"] as? Boolean == true
+
     private fun withQuery(baseUrl: String, parameters: List<Pair<String, String>>): String {
         val query = parameters.joinToString("&") { (key, value) ->
             "${encode(key)}=${encode(value)}"

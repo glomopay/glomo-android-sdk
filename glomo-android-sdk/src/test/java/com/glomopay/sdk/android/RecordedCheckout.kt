@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.Button
+import android.widget.TextView
 import com.glomopay.sdk.android.analytics.AnalyticsEvent
 import com.glomopay.sdk.android.analytics.AnalyticsFactory
 import com.glomopay.sdk.android.analytics.AnalyticsTransport
@@ -30,6 +31,29 @@ internal class RecordedCheckout private constructor(
 
     val webView: WebView
         get() = root.allViews().filterIsInstance<WebView>().first()
+
+    /**
+     * The loading label the checkout shows until the page paints.
+     *
+     * By tag, not by position: the error panel is built in the same pass and holds TextViews of
+     * its own, so "the first one" is only correct for as long as nobody reorders the root.
+     */
+    val loadingLabel: TextView
+        get() = root.allViews()
+            .filterIsInstance<TextView>()
+            .first { it.tag == GlomoPayCheckoutActivity.LOADING_LABEL_TAG }
+
+    /**
+     * The education carousel, once the flow overlay that holds it has been built.
+     *
+     * Null before then: it is created when an LRS checkout opens but is only attached to the
+     * view tree when the flow overlay is. By tag rather than by position, because the tree
+     * carries the main and flow WebViews too.
+     */
+    val carouselWebView: WebView?
+        get() = root.allViews()
+            .filterIsInstance<WebView>()
+            .firstOrNull { it.tag == GlomoPayCheckoutActivity.CAROUSEL_WEBVIEW_TAG }
 
     fun named(name: String): List<AnalyticsEvent> = events.filter { it.name == name }
 

@@ -107,6 +107,32 @@ internal fun GlomoColorScheme.resolve(
         GlomoColorScheme.AUTO -> hostNightMode(defaultNightMode, hostThemeIsLight, uiMode)
     }
 
+/**
+ * The colours the SDK paints behind the checkout before the page's first paint.
+ *
+ * Deliberately two pairs rather than a palette. The SDK's wider chrome - error panels, the flow
+ * header, the carousel host - is a separate piece of work and is still light in both schemes; the
+ * surfaces here are only the ones a customer sees *before* the page renders, which is what makes
+ * them this ticket's problem rather than that one's.
+ *
+ * [DARK_BACKGROUND] is the checkout page's own dark background, so the frame and the page agree
+ * and there is no seam at the edge while the page settles. Black would be visibly darker than the
+ * page it frames.
+ */
+internal object CheckoutSurfaceColors {
+    val LIGHT_BACKGROUND: Int = android.graphics.Color.WHITE
+    val DARK_BACKGROUND: Int = 0xFF0F172A.toInt()
+    val LIGHT_LABEL: Int = android.graphics.Color.DKGRAY
+    val DARK_LABEL: Int = 0xFF94A3B8.toInt()
+
+    fun background(scheme: ResolvedColorScheme): Int =
+        if (scheme == ResolvedColorScheme.DARK) DARK_BACKGROUND else LIGHT_BACKGROUND
+
+    /** Moves with the background, or the loading text is grey on near-black. */
+    fun label(scheme: ResolvedColorScheme): Int =
+        if (scheme == ResolvedColorScheme.DARK) DARK_LABEL else LIGHT_LABEL
+}
+
 /** The query parameter the checkout and carousel pages read at boot. */
 internal const val GLOMO_COLOR_SCHEME_PARAM: String = "colorScheme"
 
