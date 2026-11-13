@@ -10,7 +10,7 @@ kotlin {
 }
 
 group = "com.glomopay"
-version = "2.1.0"
+version = "2.2.0"
 
 val mixpanelStagingToken = providers.gradleProperty("MIXPANEL_TOKEN_STAGING")
     .orElse(providers.environmentVariable("MIXPANEL_TOKEN_STAGING"))
