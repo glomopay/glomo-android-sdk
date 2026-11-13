@@ -10,17 +10,40 @@ public API changes require a new major release.
 
 ### Changed
 
-- **Security policy tightening**
-  Payment and page-lifecycle bridge messages are now accepted only from Glomo checkout pages.
-- Containers hosting Glomo checkouts are now restricted to verified origins.
-- Events and messages will now be handled as per the same security-oriented same-origin policy.
-- No integration change is required, and the callbacks your app receives from a normal payment are unchanged.
+- **Payment and page-lifecycle bridge messages are now accepted only from Glomo checkout pages.**
+  The bank and 3-D Secure pages shown in the redirect overlay can no longer report a payment
+  result or put a checkout on the error screen. Bank-driven navigation is unaffected: a bank page
+  closing the overlay after a 3-D Secure challenge works exactly as before. No integration change
+  is required, and the callbacks your app receives from a normal payment are unchanged.
+- **The main checkout and education-carousel WebViews are now restricted to Glomo origins.** Both
+  only ever loaded Glomo pages; that is now enforced rather than assumed, and a top-level
+  navigation anywhere else is blocked and reported. Subframe loads - card entry, 3-D Secure,
+  server-to-server - are unaffected, and the bank redirect overlay is deliberately not restricted
+  by host, since the bank decides where it goes next.
+- The allow-list is derived from the base URLs this SDK navigates to, including a custom
+  `GlomoPayConfig.server`, so a self-hosted checkout is covered without extra setup.
+- The bridge now uses the WebView's own frame attribution where the device's WebView provider
+  supports it, so a message can be traced to the frame that sent it rather than to the page
+  around it. On an older provider the SDK falls back to the previous channel.
+- The injected `message` relay now forwards only same-document messages. A third-party frame
+  embedded in a Glomo page can no longer have a payment event relayed on its behalf.
+- The trusted-origin rule matches Glomo domains by suffix rather than by an exact host list, so a
+  checkout host that moves or redirects between `glomopay.com` and `glomo.one` keeps working in an
+  SDK version that shipped before the move. Configured origins that are not on a Glomo domain - the
+  education carousel and your own `server` - are trusted exactly as before.
 
 ### Fixed
 
-- Improved privacy measures: `onSdkError` will now only report fixed error descriptions. The error type, the callback signature and every other error you receive are unchanged.
-- The SDK checkout and loading screen now honor dark mode for orders carrying merchant dark mode setting configuration. Since light mode is the default, on slower network connects, a temporary light loading screen may still show while the order is being fetched. With dark mode off for the account, nothing changes.
-- Checkouts opened with an explicit `orderType`, and subscription checkouts, keep the previous light-only behaviour: those paths do not load the order, so the account setting is not available to them.
+- `onSdkError` no longer carries the content of a bridge message the SDK could not parse. The
+  underlying `JSONException` message quotes the whole unparsed input, which can include customer
+  data, so the SDK now reports a fixed message instead. Error telemetry was already unaffected.
+- With dark mode switched on for your merchant account and `GlomoColorScheme.DARK` (or `AUTO` on a
+  dark host), the checkout WebView and loading screen now turn dark as soon as the order loads,
+  instead of staying white until the page renders. A brief light loading screen may still show
+  while the order is being fetched. With dark mode off for the account, nothing changes.
+- Checkouts opened with an explicit `orderType`, and subscription checkouts, keep the previous
+  light-only behaviour: those paths do not load the order, so the account setting is not available
+  to them.
 
 ## [2.1.0] - 2026-10-29
 
