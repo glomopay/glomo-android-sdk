@@ -62,6 +62,141 @@ public final class com/glomopay/sdk/android/ConnectionErrorType : java/lang/Enum
 	public static fun values ()[Lcom/glomopay/sdk/android/ConnectionErrorType;
 }
 
+public final class com/glomopay/sdk/android/GlomoCheckoutCloseReasons {
+	public static final field COMPLETED Ljava/lang/String;
+	public static final field CONFIRMATION_TIMEOUT Ljava/lang/String;
+	public static final field ERROR Ljava/lang/String;
+	public static final field INSTANCE Lcom/glomopay/sdk/android/GlomoCheckoutCloseReasons;
+	public static final field USER_CANCELLED Ljava/lang/String;
+	public static final field USER_DISMISSED Ljava/lang/String;
+	public final fun forTermination (Lcom/glomopay/sdk/android/TerminationSource;)Ljava/lang/String;
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutClosedEvent {
+	public static final field Companion Lcom/glomopay/sdk/android/GlomoCheckoutClosedEvent$Companion;
+	public fun <init> (ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/util/Map;
+	public final fun component2 ()Lcom/glomopay/sdk/android/GlomoCheckoutResource;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Lcom/glomopay/sdk/android/GlomoCheckoutClosedEvent;
+	public static synthetic fun copy$default (Lcom/glomopay/sdk/android/GlomoCheckoutClosedEvent;ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Lcom/glomopay/sdk/android/GlomoCheckoutClosedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAt ()Ljava/lang/String;
+	public final fun getFlow ()Ljava/lang/String;
+	public final fun getJourneyId ()Ljava/lang/String;
+	public final fun getLastStage ()Ljava/lang/String;
+	public final fun getLastStep ()Ljava/lang/String;
+	public final fun getMethod ()Ljava/lang/String;
+	public final fun getPaymentId ()Ljava/lang/String;
+	public final fun getRawPayload ()Ljava/util/Map;
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getResource ()Lcom/glomopay/sdk/android/GlomoCheckoutResource;
+	public final fun getVersion ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutClosedEvent$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lcom/glomopay/sdk/android/GlomoCheckoutClosedEvent;
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutEventsKt {
+	public static final field GLOMO_CHECKOUT_EVENT_VERSION I
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutResource {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lcom/glomopay/sdk/android/GlomoCheckoutResource;
+	public static synthetic fun copy$default (Lcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/glomopay/sdk/android/GlomoCheckoutResource;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutSegment {
+	public fun <init> (II)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun copy (II)Lcom/glomopay/sdk/android/GlomoCheckoutSegment;
+	public static synthetic fun copy$default (Lcom/glomopay/sdk/android/GlomoCheckoutSegment;IIILjava/lang/Object;)Lcom/glomopay/sdk/android/GlomoCheckoutSegment;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIndex ()I
+	public final fun getTotal ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutStageChangedEvent {
+	public static final field Companion Lcom/glomopay/sdk/android/GlomoCheckoutStageChangedEvent$Companion;
+	public fun <init> (ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/glomopay/sdk/android/GlomoCheckoutSegment;Ljava/util/Map;)V
+	public synthetic fun <init> (ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/glomopay/sdk/android/GlomoCheckoutSegment;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Lcom/glomopay/sdk/android/GlomoCheckoutSegment;
+	public final fun component14 ()Ljava/util/Map;
+	public final fun component2 ()Lcom/glomopay/sdk/android/GlomoCheckoutResource;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/glomopay/sdk/android/GlomoCheckoutSegment;Ljava/util/Map;)Lcom/glomopay/sdk/android/GlomoCheckoutStageChangedEvent;
+	public static synthetic fun copy$default (Lcom/glomopay/sdk/android/GlomoCheckoutStageChangedEvent;ILcom/glomopay/sdk/android/GlomoCheckoutResource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/glomopay/sdk/android/GlomoCheckoutSegment;Ljava/util/Map;ILjava/lang/Object;)Lcom/glomopay/sdk/android/GlomoCheckoutStageChangedEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAt ()Ljava/lang/String;
+	public final fun getErrorCode ()Ljava/lang/String;
+	public final fun getFlow ()Ljava/lang/String;
+	public final fun getJourneyId ()Ljava/lang/String;
+	public final fun getJourneyType ()Ljava/lang/String;
+	public final fun getMethod ()Ljava/lang/String;
+	public final fun getPaymentId ()Ljava/lang/String;
+	public final fun getProvider ()Ljava/lang/String;
+	public final fun getRawPayload ()Ljava/util/Map;
+	public final fun getResource ()Lcom/glomopay/sdk/android/GlomoCheckoutResource;
+	public final fun getSegment ()Lcom/glomopay/sdk/android/GlomoCheckoutSegment;
+	public final fun getStage ()Ljava/lang/String;
+	public final fun getStep ()Ljava/lang/String;
+	public final fun getVersion ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutStageChangedEvent$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lcom/glomopay/sdk/android/GlomoCheckoutStageChangedEvent;
+}
+
+public final class com/glomopay/sdk/android/GlomoCheckoutStages {
+	public static final field ATTEMPT_CREATED Ljava/lang/String;
+	public static final field AWAITING_CONFIRMATION Ljava/lang/String;
+	public static final field CONFIRMED Ljava/lang/String;
+	public static final field CUSTOMER_AUTH Ljava/lang/String;
+	public static final field DETAILS_SUBMITTED Ljava/lang/String;
+	public static final field FAILED Ljava/lang/String;
+	public static final field INSTANCE Lcom/glomopay/sdk/android/GlomoCheckoutStages;
+	public static final field METHOD_SELECTED Ljava/lang/String;
+	public static final field OPENED Ljava/lang/String;
+	public static final field PROVIDER_HANDOFF Ljava/lang/String;
+	public final fun getKYC ()Ljava/util/List;
+	public final fun getPAYMENT ()Ljava/util/List;
+}
+
 public final class com/glomopay/sdk/android/GlomoColorScheme : java/lang/Enum {
 	public static final field AUTO Lcom/glomopay/sdk/android/GlomoColorScheme;
 	public static final field DARK Lcom/glomopay/sdk/android/GlomoColorScheme;
@@ -115,6 +250,8 @@ public final class com/glomopay/sdk/android/GlomoPayConfig {
 }
 
 public abstract interface class com/glomopay/sdk/android/GlomoPayListener {
+	public abstract fun onCheckoutClosed (Lcom/glomopay/sdk/android/GlomoCheckoutClosedEvent;)V
+	public abstract fun onCheckoutStageChanged (Lcom/glomopay/sdk/android/GlomoCheckoutStageChangedEvent;)V
 	public abstract fun onConnectionError (Lcom/glomopay/sdk/android/ConnectionError;)V
 	public abstract fun onEvent (Ljava/lang/String;Ljava/util/Map;)V
 	public abstract fun onPaymentFailure (Lcom/glomopay/sdk/android/GlomoPayPayload;)V
@@ -126,6 +263,8 @@ public abstract interface class com/glomopay/sdk/android/GlomoPayListener {
 }
 
 public final class com/glomopay/sdk/android/GlomoPayListener$DefaultImpls {
+	public static fun onCheckoutClosed (Lcom/glomopay/sdk/android/GlomoPayListener;Lcom/glomopay/sdk/android/GlomoCheckoutClosedEvent;)V
+	public static fun onCheckoutStageChanged (Lcom/glomopay/sdk/android/GlomoPayListener;Lcom/glomopay/sdk/android/GlomoCheckoutStageChangedEvent;)V
 	public static fun onEvent (Lcom/glomopay/sdk/android/GlomoPayListener;Ljava/lang/String;Ljava/util/Map;)V
 	public static fun onPaymentTerminate (Lcom/glomopay/sdk/android/GlomoPayListener;Lcom/glomopay/sdk/android/TerminationSource;)V
 	public static fun onUserRefusedDevicePermissions (Lcom/glomopay/sdk/android/GlomoPayListener;Ljava/lang/String;)V

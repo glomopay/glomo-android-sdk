@@ -6,6 +6,36 @@ This project follows [Semantic Versioning](https://semver.org/).
 Starting with 1.0.0, the public API follows Semantic Versioning. Breaking
 public API changes require a new major release.
 
+## Unreleased
+
+### Added
+
+- **`onCheckoutStageChanged` on `GlomoPayListener`**, reporting how far a customer got through an
+  LRS checkout. It fires each time they reach a new stage - bank selected, details submitted, bank
+  authentication, handed off to the bank, awaiting confirmation - and carries the bank, the journey
+  type and the step within a stage where there is one. Stages arrive in order and never repeat, so
+  a drop-off funnel can be built by appending.
+- **`onCheckoutClosed` on `GlomoPayListener`**, fired once when the checkout closes with the
+  furthest stage it reached and why it ended (`user_dismissed`, `user_cancelled`, `completed`,
+  `error`, `confirmation_timeout`). This is what lets a customer who abandoned at the bank be told
+  apart from one who never chose a bank. When the customer dismisses the checkout with the back
+  button or by the activity going away, the SDK reports the close itself.
+- **Types for the above**: `GlomoCheckoutStageChangedEvent`, `GlomoCheckoutClosedEvent`,
+  `GlomoCheckoutResource`, `GlomoCheckoutSegment`, and the `GlomoCheckoutStages` /
+  `GlomoCheckoutCloseReasons` constants.
+
+Both callbacks need checkout progress events switched on for your business - talk to your Glomo
+contact. Until then the checkout behaves exactly as it does today and neither fires.
+`onPaymentTerminate` is unchanged and still reports every termination; `onCheckoutClosed` adds
+where the customer stopped rather than replacing it.
+
+**Kotlin-source-compatible.** Both methods have default implementations, so an existing Kotlin
+listener compiles and behaves unchanged. A listener implemented in **Java** must declare the two
+methods - see MIGRATION.md.
+
+Treat `stage`, `step`, `provider`, `method` and `reason` as open strings: new values can appear
+without a new payload version, and the SDK forwards them rather than filtering them out.
+
 ## [2.2.0] - 2026-11-12
 
 ### Changed

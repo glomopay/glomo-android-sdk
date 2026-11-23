@@ -1,6 +1,11 @@
 package com.glomopay.sdk.android.bridge
 
 import com.glomopay.sdk.android.ConfigManager
+import com.glomopay.sdk.android.GlomoCheckoutClosedEvent
+import com.glomopay.sdk.android.GlomoCheckoutCloseReasons
+import com.glomopay.sdk.android.GlomoCheckoutStageChangedEvent
+import com.glomopay.sdk.android.GlomoCheckoutStages
+import com.glomopay.sdk.android.GLOMO_CHECKOUT_EVENT_VERSION
 import com.glomopay.sdk.android.GlomoPayPayload
 import com.glomopay.sdk.android.GlomoPayResult
 import com.glomopay.sdk.android.GlomoPayListener
@@ -17,6 +22,10 @@ import com.glomopay.sdk.android.monitoring.NoOpSdkErrorReporter
 import com.glomopay.sdk.android.monitoring.SdkErrorReporter
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class GlomoPayEventRouter(
@@ -33,6 +42,17 @@ internal class GlomoPayEventRouter(
 ) {
     private val listener = listener?.let { com.glomopay.sdk.android.GuardedGlomoPayListener(it, errorReporter) }
     private val terminalDelivered = AtomicBoolean(false)
+
+    /**
+     * The last stage change the SDK could stand behind, kept so a native dismissal can still say
+     * where the customer stopped. Only a recognised stage lands here: an unknown one is forwarded
+     * to the merchant but never quoted back in an event the SDK writes itself.
+     */
+    @Volatile
+    private var lastStageChanged: GlomoCheckoutStageChangedEvent? = null
+
+    /** One close per checkout, whether the page sent it or the SDK wrote it. */
+    private val closedDelivered = AtomicBoolean(false)
 
     fun stop() { terminalDelivered.set(true) }
 
@@ -202,7 +222,25 @@ internal class GlomoPayEventRouter(
                 // Delivered either way: the payload travels as-is in rawResponse.
                 completeFailure(payload)
             }
-            "payment.cancelled", "cancelled", "checkout.closed" -> completeCancelled(TerminationSource.USER_DISMISS)
+            "payment.cancelled", "cancelled" -> completeCancelled(TerminationSource.USER_DISMISS)
+            "checkout.closed" -> {
+                // Absent whenever checkout progress events are off for the merchant: the page still
+                // posts the close, with nothing in it. That is the pre-v1 path and it stays exactly
+                // as it was - onPaymentTerminate alone, no onCheckoutClosed.
+                val closedPayload = (data["payload"] as? Map<*, *>)
+                    ?.entries?.associate { it.key.toString() to it.value }
+                completeCancelled(TerminationSource.USER_DISMISS)
+                if (closedPayload != null && closedDelivered.compareAndSet(false, true)) {
+                    listener?.onCheckoutClosed(GlomoCheckoutClosedEvent.fromMap(closedPayload))
+                }
+            }
+            "checkout.stage_changed" -> {
+                val stagePayload = (data["payload"] as? Map<*, *>)
+                    ?.entries?.associate { it.key.toString() to it.value } ?: return
+                val event = GlomoCheckoutStageChangedEvent.fromMap(stagePayload)
+                if (isRecognisedStage(event)) lastStageChanged = event
+                listener?.onCheckoutStageChanged(event)
+            }
             "lrs.has_education_steps" -> {
                 if (EducationCarouselContract.isShowSignal(payloadData)) analytics.educationCarouselViewed()
             }
@@ -236,6 +274,58 @@ internal class GlomoPayEventRouter(
         listener?.onPaymentFailure(payload)
         onComplete(GlomoPayResult.Failure("Payment failed"))
     }
+
+    /**
+     * Writes the close the page never got to send, for a dismissal that tore the WebView down.
+     *
+     * Silent without a recognised stage: an absent `lastStage` reads as "closed before the checkout
+     * opened" in the contract, so emitting one here would assert that rather than admit we do not
+     * know. Silent too once a terminal outcome has been delivered - the checkout ended with a
+     * result, and a close after it would contradict the callback the host already acted on - and
+     * when [reason] is null, which is how a close the contract cannot describe arrives here.
+     */
+    internal fun deliverNativeClose(reason: String?) {
+        if (reason == null || terminalDelivered.get()) return
+        val last = lastStageChanged ?: return
+        if (!closedDelivered.compareAndSet(false, true)) return
+        listener?.onCheckoutClosed(synthesiseClose(last, reason))
+    }
+
+    private fun isRecognisedStage(event: GlomoCheckoutStageChangedEvent): Boolean {
+        if (event.version != GLOMO_CHECKOUT_EVENT_VERSION) return false
+        if (event.journeyId.isEmpty() || event.resource.id.isEmpty()) return false
+        val known = if (event.flow == "kyc") GlomoCheckoutStages.KYC else GlomoCheckoutStages.PAYMENT
+        return event.stage in known
+    }
+
+    /**
+     * Everything but `reason` and `at` is copied from the stage change, so the close reconciles
+     * against the stage events the merchant already received. `at` is the moment of the close.
+     */
+    private fun synthesiseClose(
+        last: GlomoCheckoutStageChangedEvent,
+        reason: String,
+    ): GlomoCheckoutClosedEvent = GlomoCheckoutClosedEvent(
+        version = last.version,
+        resource = last.resource,
+        journeyId = last.journeyId,
+        at = nowIso8601(),
+        flow = last.flow,
+        reason = reason,
+        method = last.method,
+        paymentId = last.paymentId,
+        lastStage = last.stage,
+        lastStep = last.step,
+    )
+
+    /**
+     * ISO 8601 UTC with milliseconds, the shape the contract's `at` uses. Hand-rolled rather than
+     * `java.time` because minSdk is 24 and this module does not enable core library desugaring.
+     */
+    private fun nowIso8601(): String =
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date())
 
     private fun completeCancelled(source: TerminationSource) {
         if (!terminalDelivered.compareAndSet(false, true)) return
