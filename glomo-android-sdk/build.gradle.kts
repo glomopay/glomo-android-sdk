@@ -69,6 +69,11 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // Interface methods with default bodies compile to real JVM default methods, so a Java
+        // class implementing GlomoPayListener does not have to declare the ones it ignores.
+        // `all-compatibility` rather than `all`: it keeps emitting the DefaultImpls bridges, so
+        // anything already compiled against 2.x still resolves.
+        freeCompilerArgs += "-Xjvm-default=all-compatibility"
     }
 
     buildFeatures {

@@ -2,54 +2,38 @@
 
 ## 2.2.x to 2.3.0
 
-Two optional callbacks were added to `GlomoPayListener`. **Kotlin integrations need no changes.**
-Java integrations that implement the interface directly need the one change below.
+**No changes are required.** Both new `GlomoPayListener` methods have default implementations and
+compile as Java default methods, so an existing listener keeps compiling and behaving exactly as
+before whether it is written in Kotlin or in Java.
 
-### Java: implement the two new methods
+### Java listeners gained five optional methods
 
-`GlomoPayListener` gained `onCheckoutStageChanged` and `onCheckoutClosed`. Both have default
-implementations in Kotlin, so a Kotlin class that implements the interface keeps compiling and
-behaving exactly as before.
+This release builds with `-Xjvm-default=all-compatibility`, so every defaulted method on
+`GlomoPayListener` is a real Java default method rather than an abstract one backed by
+`DefaultImpls`. A Java class implementing the interface no longer has to declare
+`onPaymentTerminate`, `onUserRefusedDevicePermissions` or `onEvent`, and does not have to declare
+the two new methods either. Classes that already declare them are unaffected, and the
+`DefaultImpls` bridges are still emitted, so anything compiled against 2.x still links.
 
-Kotlin's default interface methods do not compile to Java default methods in this SDK, so **from
-Java the two methods are abstract**.
+### Opting in to checkout progress
 
-Bumping the dependency recompiles your own sources against the new AAR, so the normal outcome is a
-**compile error** at build time - `does not override abstract method onCheckoutStageChanged` - and
-not a runtime surprise. Add the two methods and you are done.
-
-The runtime case is narrower and worth knowing about: a **prebuilt** Java artifact that implements
-`GlomoPayListener` - your own internal AAR, or a wrapper library - is not recompiled when the app
-bumps this SDK. Its compiled class still declares only the old methods, so the first time the SDK
-delivers one of the new ones it fails with `AbstractMethodError`. Rebuild that artifact against
-2.3.0 as well.
-
-Add the two no-op methods:
+Override either or both:
 
 ```java
 @Override
 public void onCheckoutStageChanged(@NonNull GlomoCheckoutStageChangedEvent event) {
-    // no-op, or read event.getStage() / event.getStep() for your funnel
+    // event.getStage(), event.getStep(), event.getProvider()
 }
 
 @Override
 public void onCheckoutClosed(@NonNull GlomoCheckoutClosedEvent event) {
-    // no-op, or read event.getLastStage() / event.getReason()
+    // event.getLastStage(), event.getReason()
 }
 ```
 
-This applies to the same three methods that were already in this position - `onPaymentTerminate`,
-`onUserRefusedDevicePermissions` and `onEvent` - so a Java listener written against 2.x already
-declares those. Nothing else about the interface changed.
-
-### Everyone: nothing fires until checkout progress events are switched on
-
-Both callbacks need checkout progress events enabled for your business, and they only ever fire on
-LRS checkouts. Until then the checkout behaves exactly as it does today and neither callback runs.
-Talk to your Glomo contact to have it switched on.
-
-`onPaymentTerminate` is unchanged and still reports every termination. `onCheckoutClosed` adds
-where the customer stopped; it does not replace it, and both fire for the same close.
+Neither fires until checkout progress events are switched on for your business, and both are LRS
+only. Talk to your Glomo contact to have it enabled. `onPaymentTerminate` is unchanged and still
+reports every termination; `onCheckoutClosed` adds where the customer stopped.
 
 ### Treat the string fields as open
 
@@ -59,4 +43,13 @@ the rest. `GlomoCheckoutStages` and `GlomoCheckoutCloseReasons` name today's val
 but neither is a closed set, and a value absent from them is still delivered.
 
 Anything the contract adds after this SDK version is reachable through
-`GlomoCheckoutStageChangedEvent.rawPayload`, which carries the payload exactly as it arrived.
+`GlomoCheckoutStageChangedEvent.getRawPayload()`, which carries the payload exactly as it arrived,
+including fields that have no typed getter yet. The same map is on `GlomoCheckoutClosedEvent` for a
+close the page sent; it is null on a close the SDK wrote itself, because there was no payload.
+
+### The event types are not constructible
+
+`GlomoCheckoutStageChangedEvent` and `GlomoCheckoutClosedEvent` have internal constructors: the SDK
+builds them, you read them. They are deliberately not data classes, so that adding a field within
+contract v1 stays binary compatible. If you need to exercise your listener in a unit test, call it
+through the SDK or hold the values you care about rather than constructing an event.

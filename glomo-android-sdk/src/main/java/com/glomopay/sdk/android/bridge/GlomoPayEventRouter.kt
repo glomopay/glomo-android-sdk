@@ -4,8 +4,6 @@ import com.glomopay.sdk.android.ConfigManager
 import com.glomopay.sdk.android.GlomoCheckoutClosedEvent
 import com.glomopay.sdk.android.GlomoCheckoutCloseReasons
 import com.glomopay.sdk.android.GlomoCheckoutStageChangedEvent
-import com.glomopay.sdk.android.GlomoCheckoutStages
-import com.glomopay.sdk.android.GLOMO_CHECKOUT_EVENT_VERSION
 import com.glomopay.sdk.android.GlomoPayPayload
 import com.glomopay.sdk.android.GlomoPayResult
 import com.glomopay.sdk.android.GlomoPayListener
@@ -43,18 +41,26 @@ internal class GlomoPayEventRouter(
     private val listener = listener?.let { com.glomopay.sdk.android.GuardedGlomoPayListener(it, errorReporter) }
     private val terminalDelivered = AtomicBoolean(false)
 
-    /**
-     * The last stage change the SDK could stand behind, kept so a native dismissal can still say
-     * where the customer stopped. Only a recognised stage lands here: an unknown one is forwarded
-     * to the merchant but never quoted back in an event the SDK writes itself.
-     */
+    /** Recognised stages only, because [deliverNativeClose] quotes it back to the merchant. */
     @Volatile
-    private var lastStageChanged: GlomoCheckoutStageChangedEvent? = null
+    private var lastRecognisedStage: GlomoCheckoutStageChangedEvent? = null
 
-    /** One close per checkout, whether the page sent it or the SDK wrote it. */
+    @Volatile
+    private var outcome: PaymentOutcome? = null
+
     private val closedDelivered = AtomicBoolean(false)
 
-    fun stop() { terminalDelivered.set(true) }
+    /**
+     * Separate from [terminalDelivered]: a delivered result ends the journey but not the page,
+     * which still reports progress afterwards. This is the Activity going away, and nothing
+     * survives it.
+     */
+    private val stopped = AtomicBoolean(false)
+
+    fun stop() {
+        stopped.set(true)
+        terminalDelivered.set(true)
+    }
 
     /**
      * The bridge boundary: everything a WebView can reach arrives here.
@@ -68,7 +74,7 @@ internal class GlomoPayEventRouter(
         webViewType: String = "main",
         sender: BridgeMessageSender = BridgeMessageSender(origin = null, isMainFrame = true),
     ) {
-        if (terminalDelivered.get()) return
+        if (stopped.get()) return
         try {
             val envelope = JSONObject(rawMessage).toMap()
             val type = envelope["type"]?.toString()
@@ -99,7 +105,11 @@ internal class GlomoPayEventRouter(
      * that starts feeding this from a WebView has to bring the check with it.
      */
     fun handleEnvelope(envelope: Map<String, Any?>, webViewType: String = "main") {
-        if (terminalDelivered.get()) return
+        if (stopped.get()) return
+        // A delivered result ends the journey for everything except checkout progress, which
+        // reports where the customer got to - including the `failed` stage and the close that
+        // the page sends after the outcome it already reported.
+        if (terminalDelivered.get() && !carriesCheckoutProgress(envelope)) return
         try {
             when (envelope["type"]?.toString()) {
                 "bridge.ready" -> if (webViewType == "main") onBridgeReady()
@@ -224,21 +234,20 @@ internal class GlomoPayEventRouter(
             }
             "payment.cancelled", "cancelled" -> completeCancelled(TerminationSource.USER_DISMISS)
             "checkout.closed" -> {
-                // Absent whenever checkout progress events are off for the merchant: the page still
-                // posts the close, with nothing in it. That is the pre-v1 path and it stays exactly
-                // as it was - onPaymentTerminate alone, no onCheckoutClosed.
+                // Null when checkout progress events are off for the merchant.
                 val closedPayload = (data["payload"] as? Map<*, *>)
                     ?.entries?.associate { it.key.toString() to it.value }
                 completeCancelled(TerminationSource.USER_DISMISS)
-                if (closedPayload != null && closedDelivered.compareAndSet(false, true)) {
-                    listener?.onCheckoutClosed(GlomoCheckoutClosedEvent.fromMap(closedPayload))
+                if (isDeliverablePayload(closedPayload) && closedDelivered.compareAndSet(false, true)) {
+                    listener?.onCheckoutClosed(closedFrom(closedPayload!!))
                 }
             }
             "checkout.stage_changed" -> {
                 val stagePayload = (data["payload"] as? Map<*, *>)
-                    ?.entries?.associate { it.key.toString() to it.value } ?: return
-                val event = GlomoCheckoutStageChangedEvent.fromMap(stagePayload)
-                if (isRecognisedStage(event)) lastStageChanged = event
+                    ?.entries?.associate { it.key.toString() to it.value }
+                if (!isDeliverablePayload(stagePayload)) return
+                val event = stageChangedFrom(stagePayload!!)
+                if (event.isRecognised()) lastRecognisedStage = event
                 listener?.onCheckoutStageChanged(event)
             }
             "lrs.has_education_steps" -> {
@@ -252,8 +261,10 @@ internal class GlomoPayEventRouter(
 
     private fun completeSuccess(payload: GlomoPayPayload) {
         if (!terminalDelivered.compareAndSet(false, true)) return
+        outcome = PaymentOutcome.SUCCEEDED
         analytics.checkoutClosed(CloseTrigger.SDK, PaymentEvent.PAYMENT_SUCCESS, listener != null)
         listener?.onPaymentSuccess(payload)
+        writeClose(GlomoCheckoutCloseReasons.COMPLETED)
         onComplete(GlomoPayResult.Success(payload.toMap()))
     }
 
@@ -263,65 +274,45 @@ internal class GlomoPayEventRouter(
      */
     private fun completeUserJourney(payload: com.glomopay.sdk.android.GlomoPayUserJourneyPayload) {
         if (!terminalDelivered.compareAndSet(false, true)) return
+        outcome = PaymentOutcome.JOURNEY_SUBMITTED
         analytics.checkoutClosed(CloseTrigger.SDK, PaymentEvent.BANK_TRANSFER_SUBMITTED, listener != null)
         listener?.onUserJourneyCompleted(payload)
+        writeClose(GlomoCheckoutCloseReasons.COMPLETED)
         onComplete(GlomoPayResult.JourneyCompleted(payload.toMap()))
     }
 
     private fun completeFailure(payload: GlomoPayPayload) {
         if (!terminalDelivered.compareAndSet(false, true)) return
+        outcome = PaymentOutcome.FAILED
         analytics.checkoutClosed(CloseTrigger.SDK, PaymentEvent.PAYMENT_FAILURE, listener != null)
         listener?.onPaymentFailure(payload)
+        writeClose(GlomoCheckoutCloseReasons.ERROR)
         onComplete(GlomoPayResult.Failure("Payment failed"))
     }
 
     /**
-     * Writes the close the page never got to send, for a dismissal that tore the WebView down.
-     *
-     * Silent without a recognised stage: an absent `lastStage` reads as "closed before the checkout
-     * opened" in the contract, so emitting one here would assert that rather than admit we do not
-     * know. Silent too once a terminal outcome has been delivered - the checkout ended with a
-     * result, and a close after it would contradict the callback the host already acted on - and
-     * when [reason] is null, which is how a close the contract cannot describe arrives here.
+     * Writes the close the page never sent. Silent without a recognised stage (a null `lastStage`
+     * claims "closed before opening") and when the contract has no reason for the termination.
      */
-    internal fun deliverNativeClose(reason: String?) {
-        if (reason == null || terminalDelivered.get()) return
-        val last = lastStageChanged ?: return
+    internal fun deliverNativeClose(source: TerminationSource) {
+        val last = lastRecognisedStage ?: return
+        writeClose(closeReasonFor(source, outcome, last.stage) ?: return)
+    }
+
+    private fun writeClose(reason: String) {
+        val last = lastRecognisedStage ?: return
         if (!closedDelivered.compareAndSet(false, true)) return
-        listener?.onCheckoutClosed(synthesiseClose(last, reason))
+        listener?.onCheckoutClosed(last.synthesisedClose(reason, nowIso8601()))
     }
 
-    private fun isRecognisedStage(event: GlomoCheckoutStageChangedEvent): Boolean {
-        if (event.version != GLOMO_CHECKOUT_EVENT_VERSION) return false
-        if (event.journeyId.isEmpty() || event.resource.id.isEmpty()) return false
-        val known = if (event.flow == "kyc") GlomoCheckoutStages.KYC else GlomoCheckoutStages.PAYMENT
-        return event.stage in known
+    private fun carriesCheckoutProgress(envelope: Map<String, Any?>): Boolean {
+        if (envelope["type"]?.toString() != "message") return false
+        val data = envelope["data"] as? Map<*, *> ?: return false
+        val name = (data["type"] as? String)?.takeIf { it.isNotEmpty() } ?: data["event"]?.toString()
+        return name == "checkout.stage_changed" || name == "checkout.closed"
     }
 
-    /**
-     * Everything but `reason` and `at` is copied from the stage change, so the close reconciles
-     * against the stage events the merchant already received. `at` is the moment of the close.
-     */
-    private fun synthesiseClose(
-        last: GlomoCheckoutStageChangedEvent,
-        reason: String,
-    ): GlomoCheckoutClosedEvent = GlomoCheckoutClosedEvent(
-        version = last.version,
-        resource = last.resource,
-        journeyId = last.journeyId,
-        at = nowIso8601(),
-        flow = last.flow,
-        reason = reason,
-        method = last.method,
-        paymentId = last.paymentId,
-        lastStage = last.stage,
-        lastStep = last.step,
-    )
-
-    /**
-     * ISO 8601 UTC with milliseconds, the shape the contract's `at` uses. Hand-rolled rather than
-     * `java.time` because minSdk is 24 and this module does not enable core library desugaring.
-     */
+    /** Hand-rolled rather than `java.time`: minSdk is 24 and core library desugaring is off. */
     private fun nowIso8601(): String =
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
             .apply { timeZone = TimeZone.getTimeZone("UTC") }

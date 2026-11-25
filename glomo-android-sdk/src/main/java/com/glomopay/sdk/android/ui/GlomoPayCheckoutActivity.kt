@@ -862,16 +862,8 @@ public class GlomoPayCheckoutActivity : Activity() {
         finished = true
         analytics.checkoutClosed(trigger)
         listener?.onPaymentTerminate(source)
-        // Every Activity-side close lands here, and none of them reaches the page - so if the page
-        // never sent its own close, this is the last chance to report where the customer stopped.
-        // The router owns the one-close-per-checkout rule and decides whether there is anything to
-        // say; `finished` above does not cover it, because the page's own close never sets it.
-        // A programmatic close maps to no contract reason and is skipped there.
-        if (::eventRouter.isInitialized) {
-            eventRouter.deliverNativeClose(
-                com.glomopay.sdk.android.GlomoCheckoutCloseReasons.forTermination(source),
-            )
-        }
+        // The router dedupes against the page's own close, which never sets `finished`.
+        if (::eventRouter.isInitialized) eventRouter.deliverNativeClose(source)
         finishWith(GlomoPayResult.Cancelled, alreadyClaimed = true)
     }
 
@@ -1087,12 +1079,9 @@ public class GlomoPayCheckoutActivity : Activity() {
             if (!finished) {
                 analytics.checkoutClosed(CloseTrigger.USER_DISMISS)
                 listener?.onPaymentTerminate(com.glomopay.sdk.android.TerminationSource.USER_DISMISS)
-                // A destroy that never went through terminateCheckout - the task swiped away, or
-                // the process torn down - is still a dismissal the page could not report.
+                // A destroy that skipped terminateCheckout (task swiped, process killed).
                 if (::eventRouter.isInitialized) {
-                    eventRouter.deliverNativeClose(
-                        com.glomopay.sdk.android.GlomoCheckoutCloseReasons.USER_DISMISSED,
-                    )
+                    eventRouter.deliverNativeClose(com.glomopay.sdk.android.TerminationSource.USER_DISMISS)
                 }
             }
             CheckoutSessionRegistry.remove(sessionId)

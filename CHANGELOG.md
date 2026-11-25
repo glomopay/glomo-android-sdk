@@ -13,25 +13,34 @@ public API changes require a new major release.
 - **`onCheckoutStageChanged` on `GlomoPayListener`**, reporting how far a customer got through an
   LRS checkout. It fires each time they reach a new stage - bank selected, details submitted, bank
   authentication, handed off to the bank, awaiting confirmation - and carries the bank, the journey
-  type and the step within a stage where there is one. Stages arrive in order and never repeat, so
-  a drop-off funnel can be built by appending.
-- **`onCheckoutClosed` on `GlomoPayListener`**, fired once when the checkout closes with the
-  furthest stage it reached and why it ended (`user_dismissed`, `user_cancelled`, `completed`,
-  `error`, `confirmation_timeout`). This is what lets a customer who abandoned at the bank be told
-  apart from one who never chose a bank. When the customer dismisses the checkout with the back
-  button or by the activity going away, the SDK reports the close itself.
+  type and the step within a stage where there is one. Stages arrive in order and each stage and
+  step pair fires at most once, so a drop-off funnel can be built by appending.
+- **`onCheckoutClosed` on `GlomoPayListener`**, fired once per checkout with the furthest stage it
+  reached and why it ended (`user_dismissed`, `user_cancelled`, `completed`, `error`,
+  `confirmation_timeout`). This is what lets a customer who abandoned at the bank be told apart
+  from one who never chose a bank. When the customer dismisses the checkout with the back button,
+  by the activity going away, or from the SDK's connection-error screen, the SDK reports the close
+  itself - `completed` after a successful payment, `error` after a failed one or from the error
+  screen, and `user_dismissed` otherwise. A checkout closed by `handle.close()` reports none.
 - **Types for the above**: `GlomoCheckoutStageChangedEvent`, `GlomoCheckoutClosedEvent`,
   `GlomoCheckoutResource`, `GlomoCheckoutSegment`, and the `GlomoCheckoutStages` /
   `GlomoCheckoutCloseReasons` constants.
 
 Both callbacks need checkout progress events switched on for your business - talk to your Glomo
-contact. Until then the checkout behaves exactly as it does today and neither fires.
+contact. Until then the checkout behaves exactly as it does today and neither fires. Only v1
+payloads are delivered: an empty or differently versioned payload reports nothing.
 `onPaymentTerminate` is unchanged and still reports every termination; `onCheckoutClosed` adds
 where the customer stopped rather than replacing it.
 
-**Kotlin-source-compatible.** Both methods have default implementations, so an existing Kotlin
-listener compiles and behaves unchanged. A listener implemented in **Java** must declare the two
-methods - see MIGRATION.md.
+**Source-compatible from Kotlin and from Java.** Both methods have default implementations, and
+this release compiles them as real Java default methods, so an existing listener compiles and
+behaves unchanged either way.
+
+### Changed
+
+- `onPaymentTerminate`, `onUserRefusedDevicePermissions` and `onEvent` are now optional for Java
+  implementations of `GlomoPayListener` as well as Kotlin ones. A Java class that declares them
+  today keeps working; one that drops them now compiles.
 
 Treat `stage`, `step`, `provider`, `method` and `reason` as open strings: new values can appear
 without a new payload version, and the SDK forwards them rather than filtering them out.
