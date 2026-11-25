@@ -108,7 +108,37 @@ implementing; do not infer it.
 Release builds log nothing by default. Never log checkout API request or response
 bodies, at any log level, in any build type.
 
-## 6. Workflow
+## 6. Comments
+
+Code should read on its own through naming. A comment earns its place only when it
+adds something the code can't say: the non-obvious *why* (a platform constraint, an
+external contract, a trap, a deliberate deviation), or a short summary over genuinely
+complex business logic. It is not a running copy of the code.
+
+Delete:
+
+- comments that restate the code, the identifier, or the parameter names
+- narration of the change or its history ("now", "previously", "stays as it was",
+  "was dropped from the contract"). That belongs in the PR description and CHANGELOG.
+- the same rationale repeated at every call site. Say it once, where the thing is
+  defined.
+- section banners, and ticket, PR or RFC references
+
+Keep it short and crisp. One or two lines is the norm; a paragraph needs a reason.
+
+Keep: code that avoids an API because `minSdk` is 24 (for example `java.time`
+without core library desugaring), with that reason. A reader can't recover that from the code, and without the comment
+someone will "fix" it.
+
+Public API docs (KDoc) are read by merchants in their IDE. Hold them to the
+same bar from the merchant's side: say what the signature can't (when it fires, what
+it doesn't cover, what an absent value means) and stop. Don't describe internals or
+how the contract evolved.
+
+Match density to the code. Bridge and protocol code can carry more comments because
+its constraints are external and invisible; model and UI code should be nearly bare.
+
+## 7. Workflow
 
 **Branches.** Branch from `main`. Use a short descriptive name, optionally
 prefixed with the change type: `fix/webview-retry-1017`, `feat/lrs-checkout`.
@@ -137,7 +167,7 @@ checklist items are load-bearing, not decoration. `main` is protected:
 **Reviews.** Push back with reasoning. If a rule here blocks something the product
 genuinely needs, say so in the PR rather than working around it.
 
-## 7. Questions
+## 8. Questions
 
 Engineering questions: developer@glomopay.com. Security: security@glomopay.com —
 never a public issue.
