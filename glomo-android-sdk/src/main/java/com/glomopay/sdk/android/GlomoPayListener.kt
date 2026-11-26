@@ -24,6 +24,25 @@ public interface GlomoPayListener {
     public fun onPaymentTerminate(source: TerminationSource): Unit = Unit
 
     /**
+     * The customer reached a new checkout stage, or a new step within one.
+     *
+     * LRS only, and only when checkout progress events are enabled for the merchant. `stage` and
+     * the other string fields are open: new values can arrive without a version bump.
+     */
+    public fun onCheckoutStageChanged(event: GlomoCheckoutStageChangedEvent): Unit = Unit
+
+    /**
+     * The checkout closed, carrying the furthest stage the page reported and why it ended.
+     *
+     * At most once per checkout, under the same conditions as [onCheckoutStageChanged], and the
+     * last event of the checkout. Not a replacement for [onPaymentTerminate], which still fires
+     * on every termination. On a close the page does not send the SDK writes this event itself,
+     * once a stage it recognises has arrived - but a checkout closed from host code before it
+     * reached a payment result sends none, because the contract has no reason for it.
+     */
+    public fun onCheckoutClosed(event: GlomoCheckoutClosedEvent): Unit = Unit
+
+    /**
      * A device permission the checkout asked for was refused by the user.
      * The checkout stays open; the bank's upload field is simply not satisfied.
      * [permission] is an android.Manifest.permission constant.

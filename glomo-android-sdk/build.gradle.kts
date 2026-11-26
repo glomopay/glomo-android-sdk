@@ -69,6 +69,9 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // `all-compatibility` rather than `all`: both give Java real default methods, but this
+        // keeps emitting the DefaultImpls bridges, so anything compiled against 2.x still resolves.
+        freeCompilerArgs += "-Xjvm-default=all-compatibility"
     }
 
     buildFeatures {

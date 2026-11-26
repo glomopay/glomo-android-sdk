@@ -24,6 +24,8 @@ import org.robolectric.android.controller.ActivityController
 internal class RecordedCheckout private constructor(
     val controller: ActivityController<GlomoPayCheckoutActivity>,
     val events: List<AnalyticsEvent>,
+    /** The same handle a merchant holds, so a test can close the checkout the way they do. */
+    val handle: GlomoPayCheckoutHandle,
 ) {
     val activity: GlomoPayCheckoutActivity = controller.get()
 
@@ -57,11 +59,15 @@ internal class RecordedCheckout private constructor(
 
     fun named(name: String): List<AnalyticsEvent> = events.filter { it.name == name }
 
-    fun post(message: Map<String, Any?>, bridge: String = "GlomoPayBridge") {
+    fun post(message: Map<String, Any?>, bridge: String = "GlomoPayBridge") =
+        postRaw(JSONObject(message).toString(), bridge)
+
+    /** The page's own wording, for a message that comes from a recorded sequence rather than a builder. */
+    fun postRaw(message: String, bridge: String = "GlomoPayBridge") {
         val target = root.allViews().filterIsInstance<WebView>()
             .mapNotNull { shadowOf(it).getJavascriptInterface(bridge) as? GlomoPayJavaScriptBridge }
             .last()
-        target.postMessage(JSONObject(message).toString())
+        target.postMessage(message)
         shadowOf(Looper.getMainLooper()).idle()
     }
 
@@ -102,10 +108,10 @@ internal class RecordedCheckout private constructor(
                     deviceProperties = { emptyMap() },
                 )
             }
-            GlomoPaySdk.startCheckout(host, config, listener, orderType = orderType)
+            val handle = GlomoPaySdk.startCheckout(host, config, listener, orderType = orderType)
             val intent = requireNotNull(shadowOf(host).nextStartedActivity)
             val controller = Robolectric.buildActivity(GlomoPayCheckoutActivity::class.java, intent).setup()
-            return RecordedCheckout(controller, events)
+            return RecordedCheckout(controller, events, handle)
         }
 
         fun reset() {

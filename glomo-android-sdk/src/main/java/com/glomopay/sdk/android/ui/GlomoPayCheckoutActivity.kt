@@ -862,6 +862,8 @@ public class GlomoPayCheckoutActivity : Activity() {
         finished = true
         analytics.checkoutClosed(trigger)
         listener?.onPaymentTerminate(source)
+        // The router dedupes against the page's own close, which never sets `finished`.
+        if (::eventRouter.isInitialized) eventRouter.deliverNativeClose(source)
         finishWith(GlomoPayResult.Cancelled, alreadyClaimed = true)
     }
 
@@ -1077,6 +1079,10 @@ public class GlomoPayCheckoutActivity : Activity() {
             if (!finished) {
                 analytics.checkoutClosed(CloseTrigger.USER_DISMISS)
                 listener?.onPaymentTerminate(com.glomopay.sdk.android.TerminationSource.USER_DISMISS)
+                // A destroy that skipped terminateCheckout, such as the task being swiped away.
+                if (::eventRouter.isInitialized) {
+                    eventRouter.deliverNativeClose(com.glomopay.sdk.android.TerminationSource.USER_DISMISS)
+                }
             }
             CheckoutSessionRegistry.remove(sessionId)
         }

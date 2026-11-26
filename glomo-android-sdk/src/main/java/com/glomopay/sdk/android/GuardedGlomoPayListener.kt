@@ -53,6 +53,12 @@ internal class GuardedGlomoPayListener(
     override fun onPaymentTerminate(source: TerminationSource) =
         deliver("onPaymentTerminate") { delegate.onPaymentTerminate(source) }
 
+    override fun onCheckoutStageChanged(event: GlomoCheckoutStageChangedEvent) =
+        deliver("onCheckoutStageChanged") { delegate.onCheckoutStageChanged(event) }
+
+    override fun onCheckoutClosed(event: GlomoCheckoutClosedEvent) =
+        deliver("onCheckoutClosed") { delegate.onCheckoutClosed(event) }
+
     override fun onUserRefusedDevicePermissions(permission: String) =
         deliver("onUserRefusedDevicePermissions") { delegate.onUserRefusedDevicePermissions(permission) }
 

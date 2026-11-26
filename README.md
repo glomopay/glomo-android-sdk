@@ -107,6 +107,81 @@ class CheckoutActivity : Activity(), GlomoPayListener {
 }
 ```
 
+## Checkout progress
+
+`onCheckoutStageChanged` and `onCheckoutClosed` report how far a customer got, so an abandoned
+checkout can be attributed to the step it stopped at rather than counted as one undifferentiated
+failure. Both are optional - a listener that ignores them compiles and behaves unchanged, in
+Kotlin and in Java.
+
+**Both need checkout progress events switched on for your business**, and they only ever fire on
+LRS checkouts. Until then neither runs and the checkout behaves exactly as it does today.
+
+```kotlin
+override fun onCheckoutStageChanged(event: GlomoCheckoutStageChangedEvent) {
+    analytics.track(
+        "checkout_stage",
+        mapOf(
+            "stage" to event.stage,
+            "step" to event.step,
+            "bank" to event.provider,
+            "orderId" to event.resource.id,
+        ),
+    )
+}
+
+override fun onCheckoutClosed(event: GlomoCheckoutClosedEvent) {
+    analytics.track(
+        "checkout_closed",
+        mapOf(
+            "reason" to event.reason,
+            "lastStage" to event.lastStage,
+            "lastStep" to event.lastStep,
+        ),
+    )
+}
+```
+
+Payment stages arrive in this order, and each stage and step pair fires at most once -
+`customer_auth` repeats once per step - so a funnel can be built by appending: `opened` (step
+`consent` or `bank_list`), `method_selected`, `details_submitted`, `attempt_created`,
+`customer_auth` (step `otp`, `document_upload`, `txn_summary` or `agreements`),
+`provider_handoff`, `awaiting_confirmation`, then `confirmed` or `failed`. `step` appears only on
+`opened` and `customer_auth`; `errorCode` only on `failed`. `provider` is the bank and
+`journeyType` is `redirect` or `native`.
+
+`onCheckoutClosed` fires at most once per checkout, with `lastStage`, `lastStep` and a `reason` of
+`user_dismissed`, `user_cancelled`, `completed`, `error` or `confirmation_timeout`. `lastStage` is
+the furthest stage the page reported, including one this SDK version has never heard of. A null
+`lastStage` means the page closed without ever reporting a stage.
+
+A back press, a swipe-away or the SDK's own connection-error screen never reaches the page, so the
+SDK writes that close itself. The reason is `completed` after a successful payment or a submitted
+bank transfer, `error` after a failed payment or from the connection-error screen, and
+`user_dismissed` otherwise - so a customer who finished paying and then dismissed the screen is not
+counted as an abandonment. The SDK writes a close only once it has seen a stage it recognises,
+because a null `lastStage` is a claim in its own right and it will not make one it cannot support.
+A checkout closed by `handle.close()` before it reached a payment result reports no close event at
+all: the contract has no reason for it, and you already know you closed it.
+
+**On a declined payment, `lastStage` is the stage before `failed`.** The checkout page reports the
+failure to the SDK before it reports the `failed` stage, and the checkout closes on the failure, so
+the stage behind it does not arrive. The reason is still `error`. This is the page's ordering and
+is being corrected there; nothing in your integration has to change when it is.
+
+`onCheckoutClosed` does not replace `onPaymentTerminate`. It is the last event of every checkout,
+arriving after `onPaymentTerminate` wherever that fires - which it no longer does once a payment
+has already reported success or failure, because one checkout is one ending.
+
+Only v1 payloads are delivered. If checkout progress events are off for your business, or the page
+sends an empty or differently versioned payload, neither callback fires.
+
+`stage`, `step`, `provider`, `method` and `reason` are plain `String`s, not enums, because the
+contract adds values without a new payload version. Match on what you care about and ignore the
+rest - `GlomoCheckoutStages` and `GlomoCheckoutCloseReasons` name today's values but are not closed
+sets, and anything the contract adds later is reachable through
+`GlomoCheckoutStageChangedEvent.rawPayload`.
+
 ## Checkout Types
 
 Supported values are `auto`, `standard`, and `lrs`.
