@@ -32,13 +32,19 @@ public interface GlomoPayListener {
     public fun onCheckoutStageChanged(event: GlomoCheckoutStageChangedEvent): Unit = Unit
 
     /**
-     * The checkout closed, carrying the furthest stage the page reported and why it ended.
+     * The checkout closed, carrying the last stage the page reported and why it ended.
      *
-     * At most once per checkout, under the same conditions as [onCheckoutStageChanged], and the
-     * last event of the checkout. Not a replacement for [onPaymentTerminate], which still fires
-     * on every termination. On a close the page does not send the SDK writes this event itself,
-     * once a stage it recognises has arrived - but a checkout closed from host code before it
-     * reached a payment result sends none, because the contract has no reason for it.
+     * At most once per checkout, under the same conditions as [onCheckoutStageChanged]. No further
+     * progress events follow it - no stage changes, and no second close. Not guaranteed: a
+     * checkout closed from host code before any stage arrived sends none.
+     *
+     * Not a payment outcome. After a dismissal the payment can still complete on the server, so
+     * read that from the payment status API or your webhook; `completed` means the customer
+     * finished what the checkout asked of them, not that the payment settled.
+     *
+     * On a close the page does not send, the SDK writes this event itself once it has seen a stage
+     * it recognises. Where [onPaymentTerminate] also fires, it comes first - it does not fire once
+     * a payment has reported success or failure.
      */
     public fun onCheckoutClosed(event: GlomoCheckoutClosedEvent): Unit = Unit
 

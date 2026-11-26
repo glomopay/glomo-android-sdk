@@ -114,12 +114,10 @@ internal fun GlomoCheckoutStageChangedEvent.synthesisedClose(
 )
 
 /**
- * The reason for a close the SDK writes on a dismissal, or null where the contract has none. A
- * close owed to a payment outcome is written at the outcome and names its own reason, so there is
- * no outcome to weigh here - see [GlomoPayEventRouter.deliverNativeClose].
+ * The reason for a close the SDK writes on a dismissal, or null where the contract has none.
  *
- * Null for [TerminationSource.PROGRAMMATIC]: the merchant closed a checkout that reached no
- * result, already knows it, and `user_dismissed` would blame the customer for the host's call.
+ * Null for [TerminationSource.PROGRAMMATIC]: the merchant closed a checkout that reached no result
+ * and `user_dismissed` would blame the customer for the host's call.
  */
 internal fun closeReasonFor(
     source: TerminationSource,

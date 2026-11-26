@@ -18,8 +18,11 @@ public API changes require a new major release.
 - **`onCheckoutClosed` on `GlomoPayListener`**, fired at most once per checkout with the furthest
   stage the page reported and why it ended (`user_dismissed`, `user_cancelled`, `completed`,
   `error`, `confirmation_timeout`). This is what lets a customer who abandoned at the bank be told
-  apart from one who never chose a bank. It is the last event of every checkout, arriving after
-  `onPaymentTerminate` wherever that still fires. When the customer dismisses the checkout with the
+  apart from one who never chose a bank. No progress events arrive after it - no stage changes,
+  and no second close - and it is not guaranteed: a checkout closed before any stage arrived
+  reports none. It is also not a payment outcome: after a dismissal the payment can still complete
+  on the server, so read that from the payment status API or your webhook. When the customer
+  dismisses the checkout with the
   back button, by the activity going away, or from the SDK's connection-error screen, the SDK
   reports the close itself - `completed` after a successful payment, `error` after a failed one or
   from the error screen, and `user_dismissed` otherwise. A checkout closed by `handle.close()`
@@ -33,8 +36,9 @@ public API changes require a new major release.
 Both callbacks need checkout progress events switched on for your business - talk to your Glomo
 contact. Until then the checkout behaves exactly as it does today and neither fires. Only v1
 payloads are delivered: an empty or differently versioned payload reports nothing.
-`onPaymentTerminate` is unchanged and still reports every termination; `onCheckoutClosed` adds
-where the customer stopped rather than replacing it.
+`onPaymentTerminate` is unchanged; `onCheckoutClosed` adds where the customer stopped rather than
+replacing it, and where both fire `onPaymentTerminate` comes first - it does not fire once a
+payment has reported success or failure.
 
 **Source-compatible from Kotlin and from Java.** Both methods have default implementations, and
 this release compiles them as real Java default methods, so an existing listener compiles and
