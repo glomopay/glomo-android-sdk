@@ -8,12 +8,7 @@ import com.glomopay.sdk.android.GlomoCheckoutStageChangedEvent
 import com.glomopay.sdk.android.GlomoCheckoutStages
 import com.glomopay.sdk.android.TerminationSource
 
-/**
- * Decoding and close-reason rules for the checkout progress contract.
- *
- * Internal on purpose: everything public in this module is API we cannot remove, and the contract
- * says fields may be added within v1.
- */
+/** Decoding and close-reason rules for the checkout progress contract. */
 internal const val GLOMO_CHECKOUT_EVENT_VERSION: Int = 1
 
 /** In emission order. */
@@ -43,11 +38,8 @@ internal val KYC_STAGES: List<String> = listOf(
 )
 
 /**
- * Whether a payload may be delivered at all.
- *
  * No payload is the switch-off path and `{}` is what arrives when the flag drops mid-session;
- * neither can become a typed event without inventing fields, and a payload stamped with another
- * contract version is not ours to read.
+ * neither is a v1 event.
  */
 internal fun isDeliverablePayload(payload: Map<String, Any?>?): Boolean =
     payload != null &&
@@ -97,10 +89,17 @@ internal fun GlomoCheckoutStageChangedEvent.isRecognised(): Boolean {
     return stage in (if (flow == "kyc") KYC_STAGES else PAYMENT_STAGES)
 }
 
-/** Copies the stage change so the close reconciles with stage events the merchant already has. */
+/** Where the customer actually got to, which is not always a stage this version recognises. */
+internal class CheckoutPosition(val stage: String, val step: String?)
+
+/**
+ * Copies this stage change's envelope so the close reconciles with the stage events the merchant
+ * already has, and quotes [position] for how far the customer got.
+ */
 internal fun GlomoCheckoutStageChangedEvent.synthesisedClose(
     reason: String,
     closedAt: String,
+    position: CheckoutPosition = CheckoutPosition(stage, step),
 ): GlomoCheckoutClosedEvent = GlomoCheckoutClosedEvent(
     version = version,
     resource = resource,
@@ -110,30 +109,23 @@ internal fun GlomoCheckoutStageChangedEvent.synthesisedClose(
     reason = reason,
     method = method,
     paymentId = paymentId,
-    lastStage = stage,
-    lastStep = step,
+    lastStage = position.stage,
+    lastStep = position.step,
 )
 
 /**
- * The reason to report for a close the SDK writes itself, or null when the contract has none.
+ * The reason for a close the SDK writes on a dismissal, or null where the contract has none. A
+ * close owed to a payment outcome is written at the outcome and names its own reason, so there is
+ * no outcome to weigh here - see [GlomoPayEventRouter.deliverNativeClose].
  *
- * Null for [TerminationSource.PROGRAMMATIC]: the merchant closed it and already knows, and
- * `user_dismissed` would blame the customer for the host's call. A delivered outcome outranks
- * the rest - the journey ended in a result, and the dismissal is only the customer leaving the
- * screen that said so.
+ * Null for [TerminationSource.PROGRAMMATIC]: the merchant closed a checkout that reached no
+ * result, already knows it, and `user_dismissed` would blame the customer for the host's call.
  */
 internal fun closeReasonFor(
     source: TerminationSource,
-    outcome: PaymentOutcome?,
     lastStage: String?,
 ): String? {
     if (source == TerminationSource.PROGRAMMATIC) return null
-    when (outcome) {
-        PaymentOutcome.SUCCEEDED, PaymentOutcome.JOURNEY_SUBMITTED ->
-            return GlomoCheckoutCloseReasons.COMPLETED
-        PaymentOutcome.FAILED -> return GlomoCheckoutCloseReasons.ERROR
-        null -> Unit
-    }
     if (source == TerminationSource.CONNECTION_ERROR) return GlomoCheckoutCloseReasons.ERROR
     return when (lastStage) {
         GlomoCheckoutStages.CONFIRMED -> GlomoCheckoutCloseReasons.COMPLETED
@@ -141,14 +133,6 @@ internal fun closeReasonFor(
         else -> GlomoCheckoutCloseReasons.USER_DISMISSED
     }
 }
-
-/**
- * How the journey ended, where it ended at all.
- *
- * [JOURNEY_SUBMITTED] is submitted, not settled - but the customer finished what the checkout
- * asked of them, and the contract has no separate reason for it.
- */
-internal enum class PaymentOutcome { SUCCEEDED, FAILED, JOURNEY_SUBMITTED }
 
 private fun Any?.nonEmptyString(): String? = (this as? String)?.takeIf { it.isNotEmpty() }
 

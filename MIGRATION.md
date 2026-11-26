@@ -47,9 +47,12 @@ Anything the contract adds after this SDK version is reachable through
 including fields that have no typed getter yet. The same map is on `GlomoCheckoutClosedEvent` for a
 close the page sent; it is null on a close the SDK wrote itself, because there was no payload.
 
-### The event types are not constructible
+### The event types are not yours to construct
 
 `GlomoCheckoutStageChangedEvent` and `GlomoCheckoutClosedEvent` have internal constructors: the SDK
-builds them, you read them. They are deliberately not data classes, so that adding a field within
-contract v1 stays binary compatible. If you need to exercise your listener in a unit test, call it
-through the SDK or hold the values you care about rather than constructing an event.
+builds them, you read them. Kotlin callers cannot construct one at all; from Java the constructor
+is technically reachable, but it is not part of the published API and its parameter list will grow
+as contract v1 adds fields, so a call site that uses it will not keep compiling. They are also
+deliberately not data classes, so that adding a field stays binary compatible. If you need to
+exercise your listener in a unit test, call it through the SDK or hold the values you care about
+rather than constructing an event.

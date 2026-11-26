@@ -1,9 +1,7 @@
 package com.glomopay.sdk.android
 
-/**
- * Transcribed by hand from `checkout-events.schema.json`; re-check it when the schema changes.
- * The string fields are open: the constant objects below name known values, not closed sets.
- */
+// Transcribed by hand from `checkout-events.schema.json`; re-check it when the schema changes.
+// The string fields are open: the constant objects below name known values, not closed sets.
 
 public object GlomoCheckoutStages {
     public const val OPENED: String = "opened"

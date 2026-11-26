@@ -150,8 +150,9 @@ Payment stages arrive in this order, and each stage and step pair fires at most 
 `opened` and `customer_auth`; `errorCode` only on `failed`. `provider` is the bank and
 `journeyType` is `redirect` or `native`.
 
-`onCheckoutClosed` fires once per checkout, with `lastStage`, `lastStep` and a `reason` of
-`user_dismissed`, `user_cancelled`, `completed`, `error` or `confirmation_timeout`. A null
+`onCheckoutClosed` fires at most once per checkout, with `lastStage`, `lastStep` and a `reason` of
+`user_dismissed`, `user_cancelled`, `completed`, `error` or `confirmation_timeout`. `lastStage` is
+the furthest stage the page reported, including one this SDK version has never heard of. A null
 `lastStage` means the page closed without ever reporting a stage.
 
 A back press, a swipe-away or the SDK's own connection-error screen never reaches the page, so the
@@ -160,11 +161,17 @@ bank transfer, `error` after a failed payment or from the connection-error scree
 `user_dismissed` otherwise - so a customer who finished paying and then dismissed the screen is not
 counted as an abandonment. The SDK writes a close only once it has seen a stage it recognises,
 because a null `lastStage` is a claim in its own right and it will not make one it cannot support.
-A checkout closed by `handle.close()` reports no close event at all: the contract has no reason for
-it, and you already know you closed it.
+A checkout closed by `handle.close()` before it reached a payment result reports no close event at
+all: the contract has no reason for it, and you already know you closed it.
 
-`onCheckoutClosed` does not replace `onPaymentTerminate`, which still reports every termination
-exactly as before; both fire for the same close.
+**On a declined payment, `lastStage` is the stage before `failed`.** The checkout page reports the
+failure to the SDK before it reports the `failed` stage, and the checkout closes on the failure, so
+the stage behind it does not arrive. The reason is still `error`. This is the page's ordering and
+is being corrected there; nothing in your integration has to change when it is.
+
+`onCheckoutClosed` does not replace `onPaymentTerminate`. It is the last event of every checkout,
+arriving after `onPaymentTerminate` wherever that fires - which it no longer does once a payment
+has already reported success or failure, because one checkout is one ending.
 
 Only v1 payloads are delivered. If checkout progress events are off for your business, or the page
 sends an empty or differently versioned payload, neither callback fires.

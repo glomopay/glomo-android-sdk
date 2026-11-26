@@ -41,19 +41,25 @@ internal class GlomoPayEventRouter(
     private val listener = listener?.let { com.glomopay.sdk.android.GuardedGlomoPayListener(it, errorReporter) }
     private val terminalDelivered = AtomicBoolean(false)
 
-    /** Recognised stages only, because [deliverNativeClose] quotes it back to the merchant. */
+    /** Recognised stages only: the close the SDK writes is built from this one's envelope. */
     @Volatile
     private var lastRecognisedStage: GlomoCheckoutStageChangedEvent? = null
 
+    /**
+     * How far the customer actually got, read off every delivered stage rather than only the
+     * recognised ones - the contract adds stages within v1, and quoting the last stage this
+     * version happens to know would report the drop-off a step early.
+     */
     @Volatile
-    private var outcome: PaymentOutcome? = null
+    private var lastPosition: CheckoutPosition? = null
 
     private val closedDelivered = AtomicBoolean(false)
 
     /**
-     * Separate from [terminalDelivered]: a delivered result ends the journey but not the page,
-     * which still reports progress afterwards. This is the Activity going away, and nothing
-     * survives it.
+     * The Activity is finishing and nothing survives it. It finishes on every ending - an outcome,
+     * a page close, a dismissal - so in production this is set the moment the journey ends, and
+     * anything the page sends afterwards is dropped. That includes the `failed` stage the LRS page
+     * currently posts after `payment.failure`; the ordering is being fixed on the page.
      */
     private val stopped = AtomicBoolean(false)
 
@@ -106,10 +112,6 @@ internal class GlomoPayEventRouter(
      */
     fun handleEnvelope(envelope: Map<String, Any?>, webViewType: String = "main") {
         if (stopped.get()) return
-        // A delivered result ends the journey for everything except checkout progress, which
-        // reports where the customer got to - including the `failed` stage and the close that
-        // the page sends after the outcome it already reported.
-        if (terminalDelivered.get() && !carriesCheckoutProgress(envelope)) return
         try {
             when (envelope["type"]?.toString()) {
                 "bridge.ready" -> if (webViewType == "main") onBridgeReady()
@@ -248,6 +250,7 @@ internal class GlomoPayEventRouter(
                 if (!isDeliverablePayload(stagePayload)) return
                 val event = stageChangedFrom(stagePayload!!)
                 if (event.isRecognised()) lastRecognisedStage = event
+                if (event.stage.isNotEmpty()) lastPosition = CheckoutPosition(event.stage, event.step)
                 listener?.onCheckoutStageChanged(event)
             }
             "lrs.has_education_steps" -> {
@@ -261,7 +264,6 @@ internal class GlomoPayEventRouter(
 
     private fun completeSuccess(payload: GlomoPayPayload) {
         if (!terminalDelivered.compareAndSet(false, true)) return
-        outcome = PaymentOutcome.SUCCEEDED
         analytics.checkoutClosed(CloseTrigger.SDK, PaymentEvent.PAYMENT_SUCCESS, listener != null)
         listener?.onPaymentSuccess(payload)
         writeClose(GlomoCheckoutCloseReasons.COMPLETED)
@@ -274,16 +276,16 @@ internal class GlomoPayEventRouter(
      */
     private fun completeUserJourney(payload: com.glomopay.sdk.android.GlomoPayUserJourneyPayload) {
         if (!terminalDelivered.compareAndSet(false, true)) return
-        outcome = PaymentOutcome.JOURNEY_SUBMITTED
         analytics.checkoutClosed(CloseTrigger.SDK, PaymentEvent.BANK_TRANSFER_SUBMITTED, listener != null)
         listener?.onUserJourneyCompleted(payload)
+        // Submitted, not settled - but the customer finished what the checkout asked of them, and
+        // the contract has no separate reason for it.
         writeClose(GlomoCheckoutCloseReasons.COMPLETED)
         onComplete(GlomoPayResult.JourneyCompleted(payload.toMap()))
     }
 
     private fun completeFailure(payload: GlomoPayPayload) {
         if (!terminalDelivered.compareAndSet(false, true)) return
-        outcome = PaymentOutcome.FAILED
         analytics.checkoutClosed(CloseTrigger.SDK, PaymentEvent.PAYMENT_FAILURE, listener != null)
         listener?.onPaymentFailure(payload)
         writeClose(GlomoCheckoutCloseReasons.ERROR)
@@ -293,23 +295,23 @@ internal class GlomoPayEventRouter(
     /**
      * Writes the close the page never sent. Silent without a recognised stage (a null `lastStage`
      * claims "closed before opening") and when the contract has no reason for the termination.
+     *
+     * The payment outcome is not consulted here, because it cannot be set by the time this runs:
+     * a delivered result finishes the Activity, and every path that reaches this one is guarded
+     * on the checkout not having finished. The close owed to an outcome is written at the
+     * outcome, naming its own reason.
      */
     internal fun deliverNativeClose(source: TerminationSource) {
         val last = lastRecognisedStage ?: return
-        writeClose(closeReasonFor(source, outcome, last.stage) ?: return)
+        val position = lastPosition ?: CheckoutPosition(last.stage, last.step)
+        writeClose(closeReasonFor(source, position.stage) ?: return)
     }
 
     private fun writeClose(reason: String) {
         val last = lastRecognisedStage ?: return
         if (!closedDelivered.compareAndSet(false, true)) return
-        listener?.onCheckoutClosed(last.synthesisedClose(reason, nowIso8601()))
-    }
-
-    private fun carriesCheckoutProgress(envelope: Map<String, Any?>): Boolean {
-        if (envelope["type"]?.toString() != "message") return false
-        val data = envelope["data"] as? Map<*, *> ?: return false
-        val name = (data["type"] as? String)?.takeIf { it.isNotEmpty() } ?: data["event"]?.toString()
-        return name == "checkout.stage_changed" || name == "checkout.closed"
+        val position = lastPosition ?: CheckoutPosition(last.stage, last.step)
+        listener?.onCheckoutClosed(last.synthesisedClose(reason, nowIso8601(), position))
     }
 
     /** Hand-rolled rather than `java.time`: minSdk is 24 and core library desugaring is off. */

@@ -1079,7 +1079,7 @@ public class GlomoPayCheckoutActivity : Activity() {
             if (!finished) {
                 analytics.checkoutClosed(CloseTrigger.USER_DISMISS)
                 listener?.onPaymentTerminate(com.glomopay.sdk.android.TerminationSource.USER_DISMISS)
-                // A destroy that skipped terminateCheckout (task swiped, process killed).
+                // A destroy that skipped terminateCheckout, such as the task being swiped away.
                 if (::eventRouter.isInitialized) {
                     eventRouter.deliverNativeClose(com.glomopay.sdk.android.TerminationSource.USER_DISMISS)
                 }

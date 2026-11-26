@@ -13,7 +13,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-private fun stageChanged(vararg overrides: Pair<String, Any?>): Map<String, Any?> = buildMap {
+internal fun stageChanged(vararg overrides: Pair<String, Any?>): Map<String, Any?> = buildMap {
     put("v", 1)
     put("method", "lrs")
     put("resource", mapOf("type" to "order", "id" to "order_abc123"))
@@ -28,7 +28,7 @@ private fun stageChanged(vararg overrides: Pair<String, Any?>): Map<String, Any?
     overrides.forEach { (key, value) -> if (value == null) remove(key) else put(key, value) }
 }
 
-private fun stageEnvelope(payload: Map<String, Any?>?): Map<String, Any?> = mapOf(
+internal fun stageEnvelope(payload: Map<String, Any?>?): Map<String, Any?> = mapOf(
     "type" to "message",
     "data" to buildMap<String, Any?> {
         put("type", "checkout.stage_changed")
@@ -36,7 +36,7 @@ private fun stageEnvelope(payload: Map<String, Any?>?): Map<String, Any?> = mapO
     },
 )
 
-private fun outcomeEnvelope(type: String): Map<String, Any?> = mapOf(
+internal fun outcomeEnvelope(type: String): Map<String, Any?> = mapOf(
     "type" to "message",
     "data" to mapOf(
         "type" to type,
@@ -44,7 +44,7 @@ private fun outcomeEnvelope(type: String): Map<String, Any?> = mapOf(
     ),
 )
 
-private fun closedEnvelope(payload: Map<String, Any?>?): Map<String, Any?> = mapOf(
+internal fun closedEnvelope(payload: Map<String, Any?>?): Map<String, Any?> = mapOf(
     "type" to "message",
     "data" to buildMap<String, Any?> {
         put("type", "checkout.closed")
@@ -264,18 +264,6 @@ class CheckoutStageEventsTest {
     }
 
     @Test
-    fun a_dismissal_after_an_outcome_does_not_turn_it_into_an_abandonment() {
-        val listener = StageRecordingListener()
-        val router = router(listener)
-        router.handleEnvelope(stageEnvelope(stageChanged()))
-        router.handleEnvelope(outcomeEnvelope("payment.success"))
-
-        router.deliverNativeClose(TerminationSource.USER_DISMISS)
-
-        assertEquals(listOf(GlomoCheckoutCloseReasons.COMPLETED), listener.closes.map { it.reason })
-    }
-
-    @Test
     fun a_submitted_bank_transfer_closes_as_completed() {
         val listener = StageRecordingListener()
         val router = router(listener)
@@ -284,37 +272,6 @@ class CheckoutStageEventsTest {
         router.handleEnvelope(outcomeEnvelope("payment.bank_transfer_submitted"))
 
         assertEquals(GlomoCheckoutCloseReasons.COMPLETED, listener.closes.single().reason)
-    }
-
-    /**
-     * The outcome lands while the only stage so far is one the SDK will not quote, so no close is
-     * written at the outcome itself and the reason has to be read off the outcome later.
-     */
-    @Test
-    fun an_outcome_outranks_the_stage_that_arrives_after_it() {
-        val listener = StageRecordingListener()
-        val router = router(listener)
-        router.handleEnvelope(stageEnvelope(stageChanged("stage" to "teleported")))
-        router.handleEnvelope(outcomeEnvelope("payment.success"))
-        assertTrue(listener.closes.isEmpty(), "nothing to quote back yet")
-
-        router.handleEnvelope(stageEnvelope(stageChanged("stage" to "awaiting_confirmation", "step" to null)))
-        router.deliverNativeClose(TerminationSource.USER_DISMISS)
-
-        assertEquals(GlomoCheckoutCloseReasons.COMPLETED, listener.closes.single().reason)
-    }
-
-    /** The page reports the outcome first, so the terminal guard used to swallow this stage. */
-    @Test
-    fun the_failed_stage_still_reaches_the_merchant_after_the_outcome() {
-        val listener = StageRecordingListener()
-        val router = router(listener)
-        router.handleEnvelope(stageEnvelope(stageChanged()))
-        router.handleEnvelope(outcomeEnvelope("payment.failure"))
-
-        router.handleEnvelope(stageEnvelope(stageChanged("stage" to "failed", "step" to null)))
-
-        assertEquals(listOf("customer_auth", "failed"), listener.stages.map { it.stage })
     }
 
     @Test
@@ -459,61 +416,5 @@ class CheckoutEventParsingTest {
         assertEquals("confirmation_timeout", event.reason)
         assertNull(event.lastStage)
         assertNull(event.lastStep)
-    }
-}
-
-private class StageRecordingListener : GlomoPayListener {
-    val stages = mutableListOf<GlomoCheckoutStageChangedEvent>()
-    val closes = mutableListOf<GlomoCheckoutClosedEvent>()
-    val termination = mutableListOf<TerminationSource>()
-    val success = mutableListOf<GlomoPayPayload>()
-
-    override fun onPaymentSuccess(payload: GlomoPayPayload) { success += payload }
-    override fun onPaymentFailure(payload: GlomoPayPayload) = Unit
-    override fun onSdkError(errors: List<SdkError>) = Unit
-    override fun onConnectionError(error: ConnectionError) = Unit
-    override fun onUserJourneyCompleted(payload: GlomoPayUserJourneyPayload) = Unit
-    override fun onPaymentTerminate(source: TerminationSource) { termination += source }
-    override fun onCheckoutStageChanged(event: GlomoCheckoutStageChangedEvent) { stages += event }
-    override fun onCheckoutClosed(event: GlomoCheckoutClosedEvent) { closes += event }
-}
-
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
-class CheckoutStageEventsActivityTest {
-    private val host = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
-    private val config = GlomoPayConfig(publicKey = "test_public_key", orderId = "order_abc123")
-
-    @AfterTest
-    fun tearDown() {
-        RecordedCheckout.reset()
-    }
-
-    @Test
-    @Suppress("DEPRECATION")
-    fun a_back_press_reports_the_last_stage_the_customer_reached() {
-        val listener = StageRecordingListener()
-        val checkout = RecordedCheckout.open(host, config, listener)
-        checkout.post(stageEnvelope(stageChanged()))
-
-        checkout.activity.onBackPressed()
-
-        val closed = listener.closes.single()
-        assertEquals("user_dismissed", closed.reason)
-        assertEquals("customer_auth", closed.lastStage)
-        assertEquals("otp", closed.lastStep)
-        assertEquals(listOf(TerminationSource.BACK_BUTTON), listener.termination)
-    }
-
-    @Test
-    @Suppress("DEPRECATION")
-    fun a_back_press_with_no_stage_behind_it_reports_only_the_termination() {
-        val listener = StageRecordingListener()
-        val checkout = RecordedCheckout.open(host, config, listener)
-
-        checkout.activity.onBackPressed()
-
-        assertTrue(listener.closes.isEmpty())
-        assertEquals(listOf(TerminationSource.BACK_BUTTON), listener.termination)
     }
 }
