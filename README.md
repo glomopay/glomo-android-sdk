@@ -152,7 +152,7 @@ Payment stages arrive in this order, and each stage and step pair fires at most 
 
 `onCheckoutClosed` fires at most once per checkout, with `lastStage`, `lastStep` and a `reason` of
 `user_dismissed`, `user_cancelled`, `completed`, `error` or `confirmation_timeout`. `lastStage` is
-the furthest stage the page reported, including one this SDK version has never heard of. A null
+the last stage the page reported, including one this SDK version has never heard of. A null
 `lastStage` means the page closed without ever reporting a stage.
 
 A back press, a swipe-away or the SDK's own connection-error screen never reaches the page, so the
@@ -171,8 +171,8 @@ is being corrected there; nothing in your integration has to change when it is.
 
 **No progress events arrive after `onCheckoutClosed`** - no stage changes, and no second close.
 
-A close is not guaranteed. A checkout closed from your own code before any stage arrived reports
-none, so treat `onCheckoutClosed` as "how far they got, when we can say", not as an
+A close is not guaranteed. A checkout closed from your own code before it reached a payment result
+reports none, so treat `onCheckoutClosed` as "how far they got, when we can say", not as an
 end-of-checkout hook.
 
 **A close is not a payment outcome.** After a dismissal the payment can still complete on the

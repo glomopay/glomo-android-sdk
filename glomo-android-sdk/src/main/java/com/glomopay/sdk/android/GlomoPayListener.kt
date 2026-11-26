@@ -36,7 +36,7 @@ public interface GlomoPayListener {
      *
      * At most once per checkout, under the same conditions as [onCheckoutStageChanged]. No further
      * progress events follow it - no stage changes, and no second close. Not guaranteed: a
-     * checkout closed from host code before any stage arrived sends none.
+     * checkout closed from host code before it reached a payment result sends none.
      *
      * Not a payment outcome. After a dismissal the payment can still complete on the server, so
      * read that from the payment status API or your webhook; `completed` means the customer

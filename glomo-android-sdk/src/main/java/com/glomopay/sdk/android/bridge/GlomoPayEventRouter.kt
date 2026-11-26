@@ -45,7 +45,7 @@ internal class GlomoPayEventRouter(
     @Volatile
     private var lastRecognisedStage: GlomoCheckoutStageChangedEvent? = null
 
-    /** Read off every delivered stage: v1 adds stages, and a known one reports them a step early. */
+    /** Every delivered stage, not only recognised ones: v1 adds stages this version will not know. */
     @Volatile
     private var lastPosition: CheckoutPosition? = null
 
