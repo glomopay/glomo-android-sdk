@@ -45,21 +45,15 @@ internal class GlomoPayEventRouter(
     @Volatile
     private var lastRecognisedStage: GlomoCheckoutStageChangedEvent? = null
 
-    /**
-     * How far the customer actually got, read off every delivered stage rather than only the
-     * recognised ones - the contract adds stages within v1, and quoting the last stage this
-     * version happens to know would report the drop-off a step early.
-     */
+    /** Every delivered stage, not only recognised ones: v1 adds stages this version will not know. */
     @Volatile
     private var lastPosition: CheckoutPosition? = null
 
     private val closedDelivered = AtomicBoolean(false)
 
     /**
-     * The Activity is finishing and nothing survives it. It finishes on every ending - an outcome,
-     * a page close, a dismissal - so in production this is set the moment the journey ends, and
-     * anything the page sends afterwards is dropped. That includes the `failed` stage the LRS page
-     * currently posts after `payment.failure`; the ordering is being fixed on the page.
+     * The Activity is finishing and nothing survives it. It finishes on every ending, so anything
+     * the page sends after one is dropped - including a `failed` stage posted after the failure.
      */
     private val stopped = AtomicBoolean(false)
 
@@ -294,12 +288,10 @@ internal class GlomoPayEventRouter(
 
     /**
      * Writes the close the page never sent. Silent without a recognised stage (a null `lastStage`
-     * claims "closed before opening") and when the contract has no reason for the termination.
+     * claims "closed before opening") and where the contract has no reason for the termination.
      *
-     * The payment outcome is not consulted here, because it cannot be set by the time this runs:
-     * a delivered result finishes the Activity, and every path that reaches this one is guarded
-     * on the checkout not having finished. The close owed to an outcome is written at the
-     * outcome, naming its own reason.
+     * No outcome to weigh: a delivered result finishes the Activity, and every path here is
+     * guarded on that, so a result's close is written at the result.
      */
     internal fun deliverNativeClose(source: TerminationSource) {
         val last = lastRecognisedStage ?: return

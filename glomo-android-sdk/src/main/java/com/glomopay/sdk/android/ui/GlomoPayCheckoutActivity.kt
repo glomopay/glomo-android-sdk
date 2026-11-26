@@ -862,7 +862,7 @@ public class GlomoPayCheckoutActivity : Activity() {
         finished = true
         analytics.checkoutClosed(trigger)
         listener?.onPaymentTerminate(source)
-        // The router dedupes against the page's own close, which never sets `finished`.
+        // The router dedupes against the page's own close.
         if (::eventRouter.isInitialized) eventRouter.deliverNativeClose(source)
         finishWith(GlomoPayResult.Cancelled, alreadyClaimed = true)
     }

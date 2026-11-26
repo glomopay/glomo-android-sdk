@@ -124,6 +124,7 @@ class CheckoutStageEventsActivityTest {
         replay("flag-off-close", listener)
 
         assertEquals(listOf("terminate:USER_DISMISS"), listener.log)
+        listener.assertCloseIsLastAndSingle()
     }
 
     @Test
@@ -132,6 +133,7 @@ class CheckoutStageEventsActivityTest {
         replay("empty-payload", listener)
 
         assertTrue(listener.log.none { it.startsWith("stage:") || it.startsWith("closed:") }, "${listener.log}")
+        listener.assertCloseIsLastAndSingle()
     }
 
     @Test
@@ -187,6 +189,7 @@ class CheckoutStageEventsActivityTest {
 
         assertTrue(listener.closes.isEmpty())
         assertEquals(listOf(TerminationSource.BACK_BUTTON), listener.termination)
+        listener.assertCloseIsLastAndSingle()
     }
 
     @Test
@@ -203,5 +206,6 @@ class CheckoutStageEventsActivityTest {
         assertEquals("teleported", closed.lastStage)
         assertEquals(null, closed.lastStep)
         assertEquals("jrn_abc123", closed.journeyId, "the envelope still comes from a validated payload")
+        listener.assertCloseIsLastAndSingle()
     }
 }

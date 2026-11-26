@@ -152,7 +152,7 @@ Payment stages arrive in this order, and each stage and step pair fires at most 
 
 `onCheckoutClosed` fires at most once per checkout, with `lastStage`, `lastStep` and a `reason` of
 `user_dismissed`, `user_cancelled`, `completed`, `error` or `confirmation_timeout`. `lastStage` is
-the furthest stage the page reported, including one this SDK version has never heard of. A null
+the last stage the page reported, including one this SDK version has never heard of. A null
 `lastStage` means the page closed without ever reporting a stage.
 
 A back press, a swipe-away or the SDK's own connection-error screen never reaches the page, so the
@@ -169,9 +169,20 @@ failure to the SDK before it reports the `failed` stage, and the checkout closes
 the stage behind it does not arrive. The reason is still `error`. This is the page's ordering and
 is being corrected there; nothing in your integration has to change when it is.
 
-`onCheckoutClosed` does not replace `onPaymentTerminate`. It is the last event of every checkout,
-arriving after `onPaymentTerminate` wherever that fires - which it no longer does once a payment
-has already reported success or failure, because one checkout is one ending.
+**No progress events arrive after `onCheckoutClosed`** - no stage changes, and no second close.
+
+A close is not guaranteed. A checkout closed from your own code before it reached a payment result
+reports none, so treat `onCheckoutClosed` as "how far they got, when we can say", not as an
+end-of-checkout hook.
+
+**A close is not a payment outcome.** After a dismissal the payment can still complete on the
+server. Use the payment status API or your webhook to decide whether money moved; `reason:
+completed` means the customer finished what the checkout asked of them, not that the payment
+settled.
+
+`onCheckoutClosed` does not replace `onPaymentTerminate`, which still reports terminations as
+before. Where both fire, `onPaymentTerminate` comes first; it does not fire once a payment has
+reported success or failure, because one checkout is one ending.
 
 Only v1 payloads are delivered. If checkout progress events are off for your business, or the page
 sends an empty or differently versioned payload, neither callback fires.
