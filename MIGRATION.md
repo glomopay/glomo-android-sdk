@@ -32,8 +32,9 @@ public void onCheckoutClosed(@NonNull GlomoCheckoutClosedEvent event) {
 ```
 
 Neither fires until checkout progress events are switched on for your business, and both are LRS
-only. Talk to your Glomo contact to have it enabled. `onPaymentTerminate` is unchanged and still
-reports every termination; `onCheckoutClosed` adds where the customer stopped.
+only. Talk to your Glomo contact to have it enabled. `onPaymentTerminate` is unchanged - it still
+reports the terminations it always did, and as before it does not fire once a payment has reported
+success or failure; `onCheckoutClosed` adds where the customer stopped.
 
 ### Treat the string fields as open
 

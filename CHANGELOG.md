@@ -6,7 +6,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 Starting with 1.0.0, the public API follows Semantic Versioning. Breaking
 public API changes require a new major release.
 
-## Unreleased
+## [2.3.0] - 2026-11-27
 
 ### Added
 
@@ -19,16 +19,14 @@ public API changes require a new major release.
   stage the page reported and why it ended (`user_dismissed`, `user_cancelled`, `completed`,
   `error`, `confirmation_timeout`). This is what lets a customer who abandoned at the bank be told
   apart from one who never chose a bank. No progress events arrive after it - no stage changes,
-  and no second close - and it is not guaranteed: a checkout closed from your own code before it
-  reached a payment result reports none. It is also not a payment outcome: after a dismissal the payment can still complete
-  on the server, so read that from the payment status API or your webhook. When the customer
-  dismisses the checkout with the
-  back button, by the activity going away, or from the SDK's connection-error screen, the SDK
-  reports the close itself - `completed` after a successful payment, `error` after a failed one or
-  from the error screen, and `user_dismissed` otherwise. A checkout closed by `handle.close()`
-  before it reached a payment result reports none. On a declined payment `lastStage` is the stage
-  before `failed`, because the page reports the failure ahead of that stage and the checkout closes
-  on the failure.
+  and no second close. It is also not a payment outcome: after a dismissal the payment can still
+  complete on the server, so read that from the payment status API or your webhook. When the
+  customer dismisses the checkout with the back button, by the activity going away, or from the
+  SDK's connection-error screen, the SDK reports the close itself - `completed` after a successful
+  payment, `error` after a failed one or from the error screen, and `user_dismissed` otherwise.
+  A close is not guaranteed: a checkout closed by `handle.close()` before it reached a payment
+  result reports none. On a declined payment `lastStage` is the stage before `failed`, because the
+  page reports the failure ahead of that stage and the checkout closes on the failure.
 - **Types for the above**: `GlomoCheckoutStageChangedEvent`, `GlomoCheckoutClosedEvent`,
   `GlomoCheckoutResource`, `GlomoCheckoutSegment`, and the `GlomoCheckoutStages` /
   `GlomoCheckoutCloseReasons` constants.
@@ -44,14 +42,14 @@ payment has reported success or failure.
 this release compiles them as real Java default methods, so an existing listener compiles and
 behaves unchanged either way.
 
+Treat `stage`, `step`, `provider`, `method` and `reason` as open strings: new values can appear
+without a new payload version, and the SDK forwards them rather than filtering them out.
+
 ### Changed
 
 - `onPaymentTerminate`, `onUserRefusedDevicePermissions` and `onEvent` are now optional for Java
   implementations of `GlomoPayListener` as well as Kotlin ones. A Java class that declares them
   today keeps working; one that drops them now compiles.
-
-Treat `stage`, `step`, `provider`, `method` and `reason` as open strings: new values can appear
-without a new payload version, and the SDK forwards them rather than filtering them out.
 
 ## [2.2.0] - 2026-11-12
 
